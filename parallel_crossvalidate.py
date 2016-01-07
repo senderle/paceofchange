@@ -194,7 +194,7 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
     sourcefolder, extension, classpath, outputpath = paths
     excludeif, excludeifnot, excludebelow, excludeabove, sizecap = exclusions
     pastthreshold, futurethreshold = thresholds
-    category2sorton, positive_class, datetype, numfeatures, regularization = classifyconditions
+    category2sorton, positive_class, datetype, numfeatures, regularization, penalty = classifyconditions
 
     verbose = False
 
@@ -357,17 +357,17 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
 
     data = pd.DataFrame(voldata)
 
-    sextuplets = list()
+    model_args = list()
     for i, volid in enumerate(orderedIDs):
         listtoexclude = authormatches[i]
-        asixtuple = data, classvector, listtoexclude, i, usedate, regularization
-        sextuplets.append(asixtuple)
+        arg_set = data, classvector, listtoexclude, i, usedate, regularization, penalty
+        model_args.append(arg_set)
 
     # Now do leave-one-out predictions.
     print('Beginning multiprocessing.')
 
-    pool = Pool(processes = 4)
-    res = pool.map_async(modelingprocess.model_one_volume, sextuplets)
+    pool = Pool(processes=4)
+    res = pool.map_async(modelingprocess.model_one_volume, model_args)
 
     # After all files are processed, write metadata, errorlog, and counts of phrases.
     res.wait()
@@ -424,7 +424,7 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
 
     donttrainon.sort(reverse = True)
     trainingset, yvals, testset = sliceframe(data, classvector, donttrainon, 0)
-    newmodel = LogisticRegression(C = regularization)
+    newmodel = LogisticRegression(C=regularization, penalty=penalty)
     trainingset, means, stdevs = normalizearray(trainingset, usedate)
     newmodel.fit(trainingset, yvals)
 

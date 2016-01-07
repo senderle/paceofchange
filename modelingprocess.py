@@ -52,10 +52,11 @@ def normalizearray(featurearray, usedate):
 
     return featurearray, means, stdevs
 
-def model_one_volume(data5tuple):
-    data, classvector, listtoexclude, i, usedate, regularization = data5tuple
+def model_one_volume(model_args):
+    data, classvector, listtoexclude, i, usedate, regularization, penalty = model_args
+
     trainingset, yvals, testset = sliceframe(data, classvector, listtoexclude, i)
-    newmodel = LogisticRegression(C = regularization)
+    newmodel = LogisticRegression(C=regularization, penalty=penalty)
     trainingset, means, stdevs = normalizearray(trainingset, usedate)
     newmodel.fit(trainingset, yvals)
 
