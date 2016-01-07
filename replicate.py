@@ -63,6 +63,7 @@ if len(args) > 1:
             regularization not in allowable_regularization):
         instructions()
         sys.exit(0)
+    regularization = float(regularization)
 
 else:
     instructions()
