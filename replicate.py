@@ -15,7 +15,7 @@ class FloatRange(object):
             x = float(x)
         except ValueError:
             return False
-        return self.low <= x <= self.high
+        return self.low < x <= self.high
 
 allowable = {"full", "quarters", "nations", "genders", "canon", "halves"}
 allowable_penalty = {"l1", "l2"}
@@ -42,16 +42,24 @@ def penalty_instructions():
     print()
 
 def regularization_instructions():
-    print("You may optionally specify a regularization weight.")
-    print("Higher values make the model more tolerant of outliers.")
-    print("Lower values make the model fit the training data more")
+    print("You may optionally specify a regularization parameter. (C)")
+    print("Lower values make the model more tolerant of outliers.")
+    print("Higher values make the model fit the training data more")
     print("closely, but may cause the model to perform poorly on")
     print("new data. (In other words, training error will go down,")
-    print("but test error will go up.")
+    print("but test error may go up.)")
     print()
     print("You may select a value between 0.0 and 10.0. Default is")
     print("0.0007")
     print()
+
+def get_clui_input(instructions, allow, prompt):
+    instructions()
+    result = ""
+    while result not in allow:
+        result = input(prompt)
+    print()
+    return result
 
 args = dict(zip(['_', 'command', 'penalty', 'regularization'], sys.argv))
 if len(args) > 1:
@@ -63,33 +71,14 @@ if len(args) > 1:
             regularization not in allowable_regularization):
         instructions()
         sys.exit(0)
-    regularization = float(regularization)
 
 else:
-    instructions()
-    command = ""
-    while command not in allowable:
-        command = input("Which option do you want to run? ")
+    clui = ((instructions, allowable, "Which option do you want to run? "),
+            (penalty_instructions, allowable_penalty, "Which penalty would you like to use? "),
+            (regularization_instructions, allowable_regularization, "What parameter would you like to use? "))
+    command, penalty, regularization = map(get_clui_input, clui)
 
-    penalty_instructions()
-    penalty = ""
-    while penalty not in allowable_penalty:
-        penalty = input("What penalty would you like to use? ")
-        if not penalty:
-            penalty = "l2"
-
-    regularization_instructions()
-    regularization = -1
-    while regularization not in allowable_regularization:
-        regularization = input("What weight would you like to use? ")
-        if not regularization:
-            regularization = 0.0007
-    regularization = float(regularization)
-
-assert command in allowable
-assert penalty in allowable_penalty
-assert regularization in allowable_regularization
-print()
+regularization = float(regularization)
 
 if command == 'full':
 
