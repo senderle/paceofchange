@@ -4,95 +4,7 @@
 
 import parallel_crossvalidate as pc
 import sys
-
-class FloatRange(object):
-    def __init__(self, low, high):
-        self.low = low
-        self.high = high
-
-    def __contains__(self, x):
-        try:
-            x = float(x)
-        except ValueError:
-            return False
-        return self.low < x <= self.high
-
-allowable = {"full", "quarters", "nations", "genders", "canon", "halves"}
-allowable_penalty = {"l1", "l2"}
-allowable_regularization = FloatRange(0, 10)
-
-def instructions():
-    print("Your options are: ")
-    print()
-    print("full -- model the full 700-volume dataset using default settings")
-    print("quarters -- create four quarter-century models")
-    print("nations -- distinguish American and British poets")
-    print()
-
-def penalty_instructions():
-    print("You may optionally specify a regularization penalty type.")
-    print("Your penalty options are:")
-    print()
-    print("l1 -- sum of absolute values (a.k.a. 'manhattan norm')")
-    print("l2 -- square root of sum of squares (a.k.a. 'euclidean norm')")
-    print()
-    print("'l1' will penalize all values equally. 'l2' will relax the")
-    print("penalty when weights are spread more evenly across values.")
-    print("The default is 'l2'")
-    print()
-
-def regularization_instructions():
-    print("You may optionally specify a regularization parameter. (C)")
-    print("Lower values make the model more tolerant of outliers.")
-    print("Higher values make the model fit the training data more")
-    print("closely, but may cause the model to perform poorly on")
-    print("new data. (In other words, training error will go down,")
-    print("but test error may go up.)")
-    print()
-    print("You may select a value between 0.0 and 10.0. Default is")
-    print("0.0007")
-    print()
-
-def get_clui_input(instructions, allow, default, prompt):
-    instructions()
-    result = ""
-    while result not in allow:
-        result = input(prompt)
-        if result == "":
-            result = default
-    print()
-    return result
-
-def display_tilt_accuracy(rawaccuracy, tiltaccuracy):
-    msg = 'If we divide the dataset with a horizontal line at 0.5, accuracy is:'
-    print(msg, str(rawaccuracy))
-    msg = "Divided with a line fit to the data trend, it's"
-    print(msg, str(tiltaccuracy))
-
-def get_args():
-    args = dict(zip(['_', 'command', 'penalty', 'regularization'], sys.argv))
-    command = args.get('command')
-    penalty = args.get('penalty', 'l2')
-    regularization = args.get('regularization', 0.0007)
-    if (command not in allowable or
-            penalty not in allowable_penalty or
-            regularization not in allowable_regularization):
-        instructions()
-        sys.exit(0)
-    return command, penalty, float(regularization)
-
-def get_clui_args():
-    inst = instructions, penalty_instructions, regularization_instructions
-    allow = allowable, allowable_penalty, allowable_regularization
-    default = 'full', 'l2', 0.00007
-    prompt = ("Which option do you want to run? ",
-              "Which penalty would you like to use? ",
-              "What parameter would you like to use? ")
-    command, penalty, regularization = map(
-        get_clui_input, inst, allow, default, prompt
-    )
-
-    return command, penalty, float(regularization)
+from pprint import pprint
 
 class Settings(object):
     # REGULARIZATION
@@ -145,14 +57,196 @@ class Settings(object):
 
     @property
     def thresholds(self):
-        return self.pastthreshold, s.futurethreshold
+        return self.pastthreshold, self.futurethreshold
 
     @property
     def classifyconditions(self):
         return (self.category2sorton, self.positive_class, self.datetype,
                 self.numfeatures, self.regularization, self.penalty)
 
-if __name__ == '__main__':
+def display_tilt_accuracy(rawaccuracy, tiltaccuracy):
+    msg = 'If we divide the dataset with a horizontal line at 0.5, accuracy is:'
+    print(msg, str(rawaccuracy))
+    msg = "Divided with a line fit to the data trend, it's"
+    print(msg, str(tiltaccuracy))
+
+def generic_model(s):
+    rawaccuracy, allvolumes, coefficientuples = pc.create_model(
+        s.paths, s.exclusions, s.thresholds, s.classifyconditions
+    )
+
+    tiltaccuracy = pc.diachronic_tilt(allvolumes, 'linear', [])
+    display_tilt_accuracy(rawaccuracy, tiltaccuracy)
+    return rawaccuracy, tiltaccuracy
+
+def nations(s):
+    s.outputpath = 'nationalpredictions.csv'
+    s.pastthreshold = 1700
+    s.positive_class = 'uk'
+    s.category2sorton = 'nation'
+    generic_model(s)
+
+def gender(s):
+    s.outputpath = 'genderpredictions.csv'
+    s.pastthreshold = 1700
+    s.positive_class = 'f'
+    s.category2sorton = 'gender'
+    generic_model(s)
+
+def canon(s):
+    s.outputpath = 'canonpredictions.csv'
+    del s.excludeif['recept']
+    s.sizecap = 450
+    generic_model
+
+def halves(s):
+    # DO THE FIRST HALF.
+    s.outputpath = 'firsthalfpredictions.csv'
+    s.excludebelow['firstpub'] = 1800
+    s.excludeabove['firstpub'] = 1875
+    s.sizecap = 300
+    generic_model(s)
+
+    # NOW DO THE SECOND HALF.
+    s.outputpath = 'secondhalfpredictions.csv'
+    s.excludebelow['firstpub'] = 1876
+    s.excludeabove['firstpub'] = 1925
+    generic_model(s)
+
+def quarters(s):
+    quarteroptions = [('1820-44predictions.csv', 1800, 1844),
+                      ('1845-69predictions.csv', 1845, 1869),
+                      ('1870-94predictions.csv', 1870, 1894),
+                      ('1895-19predictions.csv', 1895, 1925)]
+    # I removed the `quarterresults` line here; it seemed to do nothing. --SE
+
+    for outputpath, pastthreshold, futurethreshold in quarteroptions:
+        print(pastthreshold)
+        s.outputpath = outputpath
+        s.pastthreshold = pastthreshold
+        s.futurethreshold = futurethreshold
+
+        generic_model(s)
+        # I removed the `theseresults` lines here; see above. --SE
+
+def grid(s):
+    penalties = ['l1', 'l2']
+    regs = [r for e in range(1) for r in (6.0 / 10 ** e,
+                                          3.0 / 10 ** e,
+                                          2.0 / 10 ** e,
+                                          1.0 / 10 ** e)]
+    grid_pairs = [(p, r) for p in penalties for r in regs]
+    print("Generating models for the following penalty-parameter pairs:")
+    print("\n".join(map(str, grid_pairs)))
+    print()
+
+    results = []
+    for p, r in grid_pairs:
+        s.penalty = p
+        s.regularization = r
+        s.outputpath = 'gridpredictions_{}_{}.csv'.format(p, r)
+        print(s.outputpath)
+        raw, tilt = generic_model(s)
+        results.append({'penalty': p,
+                        'regularization': r,
+                        'rawaccuracy': raw,
+                        'tiltaccuracy': tilt})
+        pprint(results)
+
+class FloatRange(object):
+    def __init__(self, low, high):
+        self.low = low
+        self.high = high
+
+    def __contains__(self, x):
+        try:
+            x = float(x)
+        except ValueError:
+            return False
+        return self.low < x <= self.high
+
+model_dispatch = {
+    'full': generic_model,
+    'quarters': quarters,
+    'nations': nations,
+    'gender': gender,
+    'canon': canon,
+    'halves': halves,
+    'grid': grid,
+}
+
+allowable = set(model_dispatch)
+allowable_penalty = {"l1", "l2"}
+allowable_regularization = FloatRange(0, 10)
+
+def instructions():
+    print("Your options are: ")
+    print()
+    print("full -- model the full 700-volume dataset using default settings")
+    print("quarters -- create four quarter-century models")
+    print("nations -- distinguish American and British poets")
+    print()
+
+def penalty_instructions():
+    print("You may optionally specify a regularization penalty type.")
+    print("Your penalty options are:")
+    print()
+    print("l1 -- sum of absolute values (a.k.a. 'manhattan norm')")
+    print("l2 -- square root of sum of squares (a.k.a. 'euclidean norm')")
+    print()
+    print("'l1' will penalize all values equally. 'l2' will relax the")
+    print("penalty when weights are spread more evenly across values.")
+    print("The default is 'l2'")
+    print()
+
+def regularization_instructions():
+    print("You may optionally specify a regularization parameter. (C)")
+    print("Lower values make the model more tolerant of outliers.")
+    print("Higher values make the model fit the training data more")
+    print("closely, but may cause the model to perform poorly on")
+    print("new data. (In other words, training error will go down,")
+    print("but test error may go up.)")
+    print()
+    print("You may select a value between 0.0 and 10.0. Default is")
+    print("0.0007")
+    print()
+
+def get_args():
+    args = dict(zip(['_', 'command', 'penalty', 'regularization'], sys.argv))
+    command = args.get('command')
+    penalty = args.get('penalty', 'l2')
+    regularization = args.get('regularization', 0.0007)
+    if (command not in allowable or
+            penalty not in allowable_penalty or
+            regularization not in allowable_regularization):
+        instructions()
+        sys.exit(0)
+    return command, penalty, float(regularization)
+
+def get_clui_args():
+    inst = instructions, penalty_instructions, regularization_instructions
+    allow = allowable, allowable_penalty, allowable_regularization
+    default = 'full', 'l2', 0.00007
+    prompt = ("Which option do you want to run? ",
+              "Which penalty would you like to use? ",
+              "What parameter would you like to use? ")
+    command, penalty, regularization = map(
+        get_clui_input, inst, allow, default, prompt
+    )
+
+    return command, penalty, float(regularization)
+
+def get_clui_input(instructions, allow, default, prompt):
+    instructions()
+    result = ""
+    while result not in allow:
+        result = input(prompt)
+        if result == "":
+            result = default
+    print()
+    return result
+
+def run_model(model_dispatch):
     if len(sys.argv) > 1:
         command, penalty, regularization = get_args()
     else:
@@ -161,107 +255,7 @@ if __name__ == '__main__':
     s = Settings()
     s.penalty = penalty
     s.regularization = regularization
+    model_dispatch[command](s)
 
-    if command == 'full':
-        rawaccuracy, allvolumes, coefficientuples = pc.create_model(
-            s.paths, s.exclusions, s.thresholds, s.classifyconditions
-        )
-
-        tiltaccuracy = pc.diachronic_tilt(allvolumes, 'linear', [])
-        display_tilt_accuracy(rawaccuracy, tiltaccuracy)
-
-    elif command == 'quarters':
-        quarteroptions = [('1820-44predictions.csv', 1800, 1844),
-                          ('1845-69predictions.csv', 1845, 1869),
-                          ('1870-94predictions.csv', 1870, 1894),
-                          ('1895-19predictions.csv', 1895, 1925)]
-
-        quarterresults = list()
-
-        for outputpath, pastthreshold, futurethreshold in quarteroptions:
-
-            print(pastthreshold)
-            s.outputpath = outputpath
-            s.pastthreshold = pastthreshold
-            s.futurethreshold = futurethreshold
-
-            rawaccuracy, allvolumes, coefficientuples = pc.create_model(
-                s.paths, s.exclusions, s.thresholds, s.classifyconditions
-            )
-
-            tiltaccuracy = pc.diachronic_tilt(allvolumes, 'linear', [])
-            display_tilt_accuracy(rawaccuracy, tiltaccuracy)
-
-            theseresults = dict()
-            theseresults['allvolumes'] = allvolumes
-            theseresults['rawaccuracy'] = rawaccuracy
-            theseresults['tiltaccuracy'] = tiltaccuracy
-            theseresults['coefficientuples'] = coefficientuples
-            theseresults['startdate'] = pastthreshold
-
-            quarterresults.append(theseresults)
-
-    elif command == 'nations':
-        s.outputpath = 'nationalpredictions.csv'
-        s.pastthreshold = 1700
-        s.positive_class = 'uk'
-        s.category2sorton = 'nation'
-        numfeatures = 3200
-
-        rawaccuracy, allvolumes, coefficientuples = pc.create_model(
-            s.paths, s.exclusions, s.thresholds, s.classifyconditions
-        )
-
-        tiltaccuracy = pc.diachronic_tilt(allvolumes, 'linear', [])
-        display_tilt_accuracy(rawaccuracy, tiltaccuracy)
-
-    elif command == 'genders':
-        s.outputpath = 'genderpredictions.csv'
-        s.pastthreshold = 1700
-        s.positive_class = 'f'
-        s.category2sorton = 'gender'
-
-        rawaccuracy, allvolumes, coefficientuples = pc.create_model(
-            s.paths, s.exclusions, s.thresholds, s.classifyconditions
-        )
-
-        tiltaccuracy = pc.diachronic_tilt(allvolumes, 'linear', [])
-        display_tilt_accuracy(rawaccuracy, tiltaccuracy)
-
-    elif command == 'canon':
-        s.outputpath = 'canonpredictions.csv'
-        del s.excludeif['recept']
-        s.sizecap = 450
-
-        rawaccuracy, allvolumes, coefficientuples = pc.create_model(
-            s.paths, s.exclusions, s.thresholds, s.classifyconditions
-        )
-
-        tiltaccuracy = pc.diachronic_tilt(allvolumes, 'linear', [])
-        display_tilt_accuracy(rawaccuracy, tiltaccuracy)
-
-    elif command == 'halves':
-        s.outputpath = 'firsthalfpredictions.csv'
-        s.excludebelow['firstpub'] = 1800
-        s.excludeabove['firstpub'] = 1875
-        s.sizecap = 300
-
-        rawaccuracy, allvolumes, coefficientuples = pc.create_model(
-            s.paths, s.exclusions, s.thresholds, s.classifyconditions
-        )
-
-        tiltaccuracy = pc.diachronic_tilt(allvolumes, 'linear', [])
-        display_tilt_accuracy(rawaccuracy, tiltaccuracy)
-
-        # NOW DO THE SECOND HALF.
-
-        s.excludebelow['firstpub'] = 1876
-        s.excludeabove['firstpub'] = 1925
-        s.outputpath = 'secondhalfpredictions.csv'
-
-        rawaccuracy, allvolumes, coefficientuples = pc.create_model(
-            s.paths, s.exclusions, s.thresholds, s.classifyconditions
-        )
-
-        tiltaccuracy = pc.diachronic_tilt(allvolumes, 'linear', [])
-        display_tilt_accuracy(rawaccuracy, tiltaccuracy)
+if __name__ == '__main__':
+    run_model(model_dispatch)
