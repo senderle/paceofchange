@@ -11,7 +11,7 @@ import pandas as pd
 import csv, os, random, sys
 from collections import Counter
 from multiprocessing import Pool
-from sklearn.linear_model import LogisticRegression
+from models import LogisticRegression
 import modelingprocess
 import metafilter
 from scipy.stats import norm

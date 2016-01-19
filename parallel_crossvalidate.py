@@ -11,7 +11,7 @@ import pandas as pd
 import csv, os, random, sys
 from collections import Counter
 from multiprocessing import Pool
-from sklearn.linear_model import LogisticRegression
+from models import LogisticRegression
 import modelingprocess
 import metafilter
 # from scipy.stats import norm
@@ -272,6 +272,34 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
                         # so it's just +=1.
 
     vocablist = [x[0] for x in wordcounts.most_common(numfeatures)]
+    # vocablist = [
+    #     'eyes', 'mission', 'hurrying', 'whereon', 'hollow', 'sake', 'sign',
+    #     'wondrous', 'greet', 'spotless', 'brows', 'trance', 'harsh', 'black',
+    #     "i'll", 'wooed', 'command', 'haired', 'stir', 'slow', 'smooth',
+    #     'ghosts', 'anxious', 'appear', 'shuddering', 'reign', 'guide', 'half',
+    #     'hers', 'follows', 'dashed', 'throng', 'oft', 'scorn', 'evil',
+    #     'change', 'tis', 'moments', 'cheer', 'wert', 'what', 'goal', 'raging',
+    #     'blew', 'hurt', 'waved', 'loving', 'thorn', 'earthly', 'western',
+    #     'fainting', 'goes', 'reigns', 'grass', 'shut', 'turf', 'nights',
+    #     'fresh', 'branch', 'dusk', 'sank', 'rays', 'steal', 'strand', 'wrote',
+    #     'toiled', 'purest', 'fondly', 'sighed', 'true', 'sealed', 'heavy',
+    #     'plan', 'steeds', 'ills', 'turning', 'appeared', 'helpless', 'dull',
+    #     'mock', 'drunk', 'visions', 'enough', 'sheen', 'moan', 'lately',
+    #     'wheel', 'parted', 'unheard', 'not', 'wherein', 'nation', 'trembled',
+    #     "we'll", 'folly', 'worn', 'our', 'lest', 'gulf', 'magic', 'brave',
+    #     'whirl', 'round', 'weal', 'wind', 'grand', 'raised', 'red',
+    #     'anything', 'until', 'wound', 'shook', 'saviour', 'daughters', 'once',
+    #     'shattered', 'band', 'whose', 'bold', 'nought', 'winning', 'has',
+    #     'sees', 'blowing', 'yours', 'inward', 'blown', 'roaring', 'sped',
+    #     'petals', 'pay', 'meek', 'clear', 'sand', 'pomp', 'graves', 'thank',
+    #     'lords', 'rose', 'sacred', 'shakes', 'springtime', 'joyful', 'flesh',
+    #     'nature', 'violets', 'ghost', 'fixed', 'search', 'fire', 'startled',
+    #     'twelve', 'and', 'stain', 'freed', 'darkly', 'breath', 'seasons',
+    #     'conquer', 'still', 'tell', 'brooding', 'last', 'cold', 'doom', 'seen',
+    #     'keeps', 'shadow', 're', 'plant', 'presence', 'four', 'own', 'thus',
+    #     'every', 'crime', 'more', 'sweets', 'fancy', 'often', 'rich', 'fair',
+    #     'lord'
+    # ]
 
     # vocablist = binormal_select(vocablist, positivecounts, negativecounts, totalposvols, totalnegvols, 3000)
     # Feature selection is deprecated. There are cool things
