@@ -8,7 +8,9 @@
 
 import numpy as np
 import pandas as pd
-import csv, os, random, sys
+import csv
+import os
+import sys
 from collections import Counter
 from multiprocessing import Pool
 from models import LogisticRegression
@@ -54,10 +56,10 @@ def dirty_pairtree(htid):
     '''
     period = htid.find('.')
     prefix = htid[0:period]
-    postfix = htid[(period+1): ]
+    postfix = htid[(period+1):]
     if '=' in postfix:
-        postfix = postfix.replace('+',':')
-        postfix = postfix.replace('=','/')
+        postfix = postfix.replace('+', ':')
+        postfix = postfix.replace('=', '/')
     dirtyname = prefix + "." + postfix
     return dirtyname
 
@@ -95,7 +97,6 @@ def get_features_with_date(wordcounts, wordlist, date, totalcount):
     return wordvec
 
 def sliceframe(dataframe, yvals, excludedrows, testrow):
-    numrows = len(dataframe)
     newyvals = list(yvals)
     for i in excludedrows:
         del newyvals[i]
@@ -122,7 +123,7 @@ def normalizearray(featurearray, usedate):
     lastcolumn = numfeatures - 1
     for featureidx in range(numfeatures):
 
-        thiscolumn = featurearray.iloc[ : , featureidx]
+        thiscolumn = featurearray.iloc[:, featureidx]
         thismean = np.mean(thiscolumn)
 
         thisstdev = np.std(thiscolumn)
@@ -131,73 +132,62 @@ def normalizearray(featurearray, usedate):
             # If we're using date we don't normalize the last column.
             means.append(thismean)
             stdevs.append(thisstdev)
-            featurearray.iloc[ : , featureidx] = (thiscolumn - thismean) / thisstdev
+            featurearray.iloc[:, featureidx] = (thiscolumn - thismean) / thisstdev
         else:
             print('FLAG')
             means.append(thismean)
             thisstdev = 0.1
             stdevs.append(thisstdev)
-            featurearray.iloc[ : , featureidx] = (thiscolumn - thismean) / thisstdev
+            featurearray.iloc[:, featureidx] = (thiscolumn - thismean) / thisstdev
             # We set a small stdev for date.
 
     return featurearray, means, stdevs
 
-def binormal_select(vocablist, positivecounts, negativecounts, totalpos, totalneg, k):
-    ''' A feature-selection option, not currently in use.
-    '''
-    all_scores = np.zeros(len(vocablist))
+# Deprecated; see note below on feature selection
+# def binormal_select(vocablist, positivecounts, negativecounts, totalpos, totalneg, k):
+#     ''' A feature-selection option, not currently in use.
+#     '''
+#     all_scores = np.zeros(len(vocablist))
+#
+#     for idx, word in enumerate(vocablist):
+#         # For each word we create a vector the length of vols in each class
+#         # that contains real counts, plus zeroes for all those vols not
+#         # represented.
+#
+#         positives = np.zeros(totalpos, dtype='int64')
+#         if word in positivecounts:
+#             positives[0: len(positivecounts[word])] = positivecounts[word]
+#
+#         negatives = np.zeros(totalneg, dtype='int64')
+#         if word in negativecounts:
+#             negatives[0: len(negativecounts[word])] = negativecounts[word]
+#
+#         featuremean = np.mean(np.append(positives, negatives))
+#
+#         tp = sum(positives > featuremean)
+#         fp = sum(positives <= featuremean)
+#         tn = sum(negatives > featuremean)
+#         fn = sum(negatives <= featuremean)
+#         tpr = tp/(tp+fn)  # true positive ratio
+#         fpr = fp/(fp+tn)  # false positive ratio
+#
+#         bns_score = abs(norm.ppf(tpr) - norm.ppf(fpr))
+#         # See Forman
+#
+#         if np.isinf(bns_score) or np.isnan(bns_score):
+#             bns_score = 0
+#
+#         all_scores[idx] = bns_score
+#
+#     zipped = [x for x in zip(all_scores, vocablist)]
+#     zipped.sort(reverse=True)
+#     with open('bnsscores.tsv', mode='w', encoding='utf-8') as f:
+#         for score, word in zipped:
+#             f.write(word + '\t' + str(score) + '\n')
+#
+#     return [x[1] for x in zipped[0:k]]
 
-    for idx, word in enumerate(vocablist):
-        # For each word we create a vector the length of vols in each class
-        # that contains real counts, plus zeroes for all those vols not
-        # represented.
-
-        positives = np.zeros(totalpos, dtype = 'int64')
-        if word in positivecounts:
-            positives[0: len(positivecounts[word])] = positivecounts[word]
-
-        negatives = np.zeros(totalneg, dtype = 'int64')
-        if word in negativecounts:
-            negatives[0: len(negativecounts[word])] = negativecounts[word]
-
-        featuremean = np.mean(np.append(positives, negatives))
-
-        tp = sum(positives > featuremean)
-        fp = sum(positives <= featuremean)
-        tn = sum(negatives > featuremean)
-        fn = sum(negatives <= featuremean)
-        tpr = tp/(tp+fn) # true positive ratio
-        fpr = fp/(fp+tn) # false positive ratio
-
-        bns_score = abs(norm.ppf(tpr) - norm.ppf(fpr))
-        # See Forman
-
-        if np.isinf(bns_score) or np.isnan(bns_score):
-            bns_score = 0
-
-        all_scores[idx] = bns_score
-
-    zipped = [x for x in zip(all_scores, vocablist)]
-    zipped.sort(reverse = True)
-    with open('bnsscores.tsv', mode='w', encoding = 'utf-8') as f:
-        for score, word in zipped:
-            f.write(word + '\t' + str(score) + '\n')
-
-    return [x[1] for x in zipped[0:k]]
-
-def create_model(paths, exclusions, thresholds, classifyconditions):
-    ''' This is the main function in the module.
-    It can be called externally; it's also called
-    if the module is run directly.
-    '''
-
-    sourcefolder, extension, classpath, outputpath = paths
-    excludeif, excludeifnot, excludebelow, excludeabove, sizecap = exclusions
-    pastthreshold, futurethreshold = thresholds
-    category2sorton, positive_class, datetype, numfeatures, regularization, penalty = classifyconditions
-
-    verbose = False
-
+def fetch_volume_paths(sourcefolder):
     if not sourcefolder.endswith('/'):
         sourcefolder = sourcefolder + '/'
 
@@ -221,6 +211,22 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
             path = sourcefolder + filename
             volumeIDs.append(volID)
             volumepaths.append(path)
+    return volumepaths, volumeIDs
+
+def create_model(paths, exclusions, thresholds, classifyconditions):
+    ''' This is the main function in the module.
+    It can be called externally; it's also called
+    if the module is run directly.
+    '''
+
+    sourcefolder, extension, classpath, outputpath = paths
+    excludeif, excludeifnot, excludebelow, excludeabove, sizecap = exclusions
+    pastthreshold, futurethreshold = thresholds
+    category2sorton, positive_class, datetype, numfeatures, regularization, penalty = classifyconditions
+
+    verbose = False
+
+    volumeIDs, volumepaths = fetch_volume_paths(sourcefolder)
 
     metadict = metafilter.get_metadata(classpath, volumeIDs, excludeif, excludeifnot, excludebelow, excludeabove)
 
@@ -243,8 +249,9 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
     volspresent = list()
     orderedIDs = list()
 
-    positivecounts = dict()
-    negativecounts = dict()
+    # Required for feature selection, deprecated
+    # positivecounts = dict()
+    # negativecounts = dict()
 
     for volid, volpath in zip(volumeIDs, volumepaths):
         if volid not in IDsToUse:
@@ -257,7 +264,7 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
         if date < pastthreshold or date > futurethreshold:
             continue
         else:
-            with open(volpath, encoding = 'utf-8') as f:
+            with open(volpath, encoding='utf-8') as f:
                 for line in f:
                     fields = line.strip().split('\t')
                     if len(fields) > 2 or len(fields) < 2:
@@ -309,6 +316,7 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
     # So we just take the most common words (by number of documents containing them)
     # in the whole corpus. Technically, I suppose, we could crossvalidate that as well,
     # but *eyeroll*.
+    # To enable feature selection, uncomment binormal_select above too
 
     donttrainon = list()
 
@@ -337,11 +345,11 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
         thisauthor = metadict[anid]['author']
         for idx2, anotherid in enumerate(orderedIDs):
             otherauthor = metadict[anotherid]['author']
-            if thisauthor == otherauthor and not idx2 in authormatches[idx1]:
+            if thisauthor == otherauthor and idx2 not in authormatches[idx1]:
                 authormatches[idx1].append(idx2)
 
     for alist in authormatches:
-        alist.sort(reverse = True)
+        alist.sort(reverse=True)
 
     # I am reversing the order of indexes so that I can delete them from
     # back to front, without changing indexes yet to be deleted.
@@ -353,7 +361,7 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
 
     for volid, volpath in volspresent:
 
-        with open(volpath, encoding = 'utf-8') as f:
+        with open(volpath, encoding='utf-8') as f:
             voldict = dict()
             totalcount = 0
             for line in f:
@@ -377,7 +385,6 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
         else:
             features = get_features(voldict, vocablist)
             voldata.append(features / (totalcount + 0.001))
-
 
         volsizes[volid] = totalcount
         classflag = classdictionary[volid]
@@ -418,7 +425,7 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
     falsenegatives = 0
     allvolumes = list()
 
-    with open(outputpath, mode = 'w', encoding = 'utf-8') as f:
+    with open(outputpath, mode='w', encoding='utf-8') as f:
         writer = csv.writer(f)
         header = ['volid', 'reviewed', 'obscure', 'pubdate', 'birthdate', 'gender', 'nation', 'allwords', 'logistic', 'author', 'title', 'pubname', 'actually', 'realclass']
         writer.writerow(header)
@@ -450,10 +457,12 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
             elif logistic > 0.5 and classdictionary[volid] < 0.5:
                 falsepositives += 1
 
-    donttrainon.sort(reverse = True)
+    donttrainon.sort(reverse=True)
     trainingset, yvals, testset = sliceframe(data, classvector, donttrainon, 0)
     newmodel = LogisticRegression(C=regularization, penalty=penalty)
     trainingset, means, stdevs = normalizearray(trainingset, usedate)
+    print(trainingset.shape)
+    print(yvals.shape)
     newmodel.fit(trainingset, yvals)
 
     coefficients = newmodel.coef_[0] * 100
@@ -468,7 +477,7 @@ def create_model(paths, exclusions, thresholds, classifyconditions):
     accuracy = (truepositives + truenegatives) / len(IDsToUse)
 
     coefficientpath = outputpath.replace('.csv', '.coefs.csv')
-    with open(coefficientpath, mode = 'w', encoding = 'utf-8') as f:
+    with open(coefficientpath, mode='w', encoding='utf-8') as f:
         writer = csv.writer(f)
         for triple in coefficientuples:
             coef, normalizedcoef, word = triple
@@ -555,8 +564,8 @@ def diachronic_tilt(allvolumes, modeltype, datelimits):
         slope = z[0]
         intercept = z[1]
 
-    plt.plot(x,p(x),"b-")
-    plt.show(block = False)
+    plt.plot(x, p(x), "b-")
+    plt.show(block=False)
 
     x = np.array(x, dtype='float64')
     y = np.array(y, dtype='float64')
@@ -574,7 +583,7 @@ if __name__ == '__main__':
     # If this class is called directly, it creates a single model using the default
     # settings set below.
 
-    ## PATHS.
+    # PATHS.
 
     # sourcefolder = '/Users/tunder/Dropbox/GenreProject/python/reception/fiction/texts/'
     # extension = '.fic.tsv'
@@ -589,7 +598,7 @@ if __name__ == '__main__':
     # We can simply exclude volumes from consideration on the basis on any
     # metadata category we want, using the dictionaries defined below.
 
-    ## EXCLUSIONS.
+    # EXCLUSIONS.
 
     excludeif = dict()
     excludeif['pubname'] = 'TEM'
@@ -614,7 +623,7 @@ if __name__ == '__main__':
     # pastthreshold set the chronological limits of the training set, inclusive
     # of the threshold itself.
 
-    ## THRESHOLDS
+    # THRESHOLDS
 
     pastthreshold = -1
     futurethreshold = 2000
@@ -627,7 +636,6 @@ if __name__ == '__main__':
     numfeatures = 3200
     regularization = .00007
 
-
     paths = (sourcefolder, extension, classpath, outputpath)
     exclusions = (excludeif, excludeifnot, excludebelow, excludeabove, sizecap)
     thresholds = (pastthreshold, futurethreshold)
@@ -639,4 +647,3 @@ if __name__ == '__main__':
     tiltaccuracy = diachronic_tilt(allvolumes, 'linear', [])
 
     print("Divided with a line fit to the data trend, it's ", str(tiltaccuracy))
-
