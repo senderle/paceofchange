@@ -180,7 +180,7 @@ class TrainingData(object):
     Public methods: ``next_testdata``, ``set_vocablist``.
     """
     def __init__(self, volumes, pastthreshold, futurethreshold,
-                 datetype, numfeatures, vocab=None, test_step=None,
+                 datetype, numfeatures, kfold_step=None, vocab=None,
                  usedate=False):
         """NOTE: Leave ``usedate`` false unless you plan major surgery
         to reactivate the currently-deprecated option to use "date"
@@ -193,15 +193,15 @@ class TrainingData(object):
         self.usedate = usedate
 
         self.test_start = self.test_end = 0
-        self.test_step = test_step
+        self.kfold_step = kfold_step
         self.shuffled_ids, self.shuffled_indices = self.shuffled_testdata()
         self.dont_train = self._dont_train()
         self.authormatches = self._authormatches()
 
         self.numfeatures = numfeatures
         self.wordcounts = self.word_doc_counts()
+        self.voldata = self.volsizes = None
         self.set_vocablist(vocab)
-        self.voldata, self.volsizes = self._voldata()
 
     def volume_words(self, volid):
         """Iterate over the word, count pairs in a given volume's file."""
@@ -254,12 +254,12 @@ class TrainingData(object):
         return shuf_ids, shuf_indices
 
     def next_testdata(self):
-        if self.test_step is None:
+        if self.kfold_step is None:
             return False
 
-        self.test_end += self.test_step
+        self.test_end += self.kfold_step
         # Because test_start and test_end both start at 0...
-        self.test_start = self.test_end - self.test_step
+        self.test_start = self.test_end - self.kfold_step
         self.dont_train = self._dont_train()
         self.authormatches = self._authormatches()
 
@@ -356,12 +356,18 @@ def read_word_coefs(words, filename):
     return word_coefs
 
 class _ValidationModel(object):
-    def __init__(self, training, penalty, regularization, verbose=False):
+    def __init__(self, training, penalty, regularization, verbose=False,
+                 feature_selector=None):
         self.training = training
         self.data = pd.DataFrame(training.voldata)
         self.regularization = regularization
         self.penalty = penalty
         self.verbose = verbose
+        if feature_selector is None:
+            self.feature_selector = lambda x: None
+        else:
+            self.feature_selector = feature_selector
+
         self.predictions = self._predict()
         self.allvolumes = self._make_output_rows()
         self.coefficientuples = self._full_coefficients()
@@ -397,6 +403,12 @@ class _ValidationModel(object):
         return ['volid', 'reviewed', 'obscure', 'pubdate', 'birthdate',
                 'gender', 'nation', 'allwords', 'logistic', 'author',
                 'title', 'pubname', 'actually', 'realclass']
+
+    def write_coefficients(self, outputpath):
+        return write_coefficients(self.coefficientuples, outputpath)
+
+    def write_output_rows(self, outputpath):
+        return write_output_rows(self.header, self.allvolumes, outputpath)
 
     def _make_output_rows(self):
         allvolumes = list()
@@ -508,27 +520,25 @@ class TestModel(_ValidationModel):
             predictions[volid] = pred
         return predictions
 
-class FeatureSelectModel(TestModel):
-    def __init__(self, training, penalty, regularization,
-                 verbose=False, granularity=4):
-        self.granularity = granularity
-        super().__init__(training, penalty, regularization, verbose)
-
+class FeatureSelectModel(_ValidationModel):
     def _predict(self):
         predictions = {}
         iterations = 0
-        all_best_words = set()
+        all_features = set()
         while self.training.next_testdata():
-            print('Selection batch {}'.format(iterations))
-            grid = GridSearch(self.training, 1, -2, self.granularity)
-            self.training.set_vocablist(grid.best_words)
-            all_best_words.update(grid.best_words)
+            print('Feature selection validation batch {}'.format(iterations))
+
+            selected_features = self.feature_selector(self.training)
+            self.training.set_vocablist(selected_features)
+            features = self.training.vocablist  # TrainingData is slightly
+            all_features.update(features)       # opinionated about features.
+
             testmodel = TestModel(self.training, self.penalty,
                                   self.regularization, verbose=True)
             predictions.update(testmodel.predictions)
             print()
             print('Features selected:')
-            print(' '.join(grid.best_words))
+            print(' '.join(features))
             print('Batch Accuracy:')
             print(testmodel.accuracy())
             print('Cumulative Accuracy:')
@@ -537,17 +547,8 @@ class FeatureSelectModel(TestModel):
             self.training.set_vocablist()
             iterations += 1
         print()
-        self.training.set_vocablist(grid.best_words)
+        self.training.set_vocablist(all_features)
         return predictions
-
-def grid_multiprocessing_model(args):
-    training, penalty, reg = args
-    model = TestModel(training, penalty, reg)
-    coefficients = {word: (coef, normed)
-                    for coef, normed, word in model.coefficientuples}
-    sys.stdout.write('.')
-    sys.stdout.flush()
-    return coefficients
 
 def poolmap(func, seq):
     pool = Pool(processes=16)
@@ -557,24 +558,31 @@ def poolmap(func, seq):
     return result
 
 class GridSearch(object):
-    def __init__(self, training, low_exp, high_exp, steps,
+    def __init__(self, start_exp=None, end_exp=None, granularity=None,
                  use_l2=False, fileoutput=False, verbose=False, ticks=True):
-
         # Stored as a list to enable multiple penalties in the future:
         self.penalties = ['l2'] if use_l2 else ['l1']
-        self.regs = self.exp_steps(low_exp, high_exp, steps)
+        self.regs = self.exp_steps(
+            start_exp if start_exp is not None else 1,
+            end_exp if end_exp is not None else -2,
+            granularity if granularity is not None else 2
+        )
 
         self.out_filename = 'gridpredictions_p-{}_r-{}.csv'.format
         self.coef_filename = 'gridpredictions_p-{}_r-{}.coefs.csv'.format
         self.gridword_filename = 'gridwords_{}.csv'.format
-        self.training = training
         self.verbose = verbose
         self.ticks = ticks
         self.fileoutput = fileoutput
 
-        if verbose:
-            self.grid_information()
-        self.best_words = self.grid_search()[0]  # Corresponds to 'l1' features
+        self.training = None
+        self.best_words = None
+
+    def __call__(self, training=None):
+        if training is not None:
+            self.training = training
+            self.best_words = self.grid_search()
+        return self.best_words
 
     def grid_information(self):
         model_descr = ' {:<15} {}'.format
@@ -601,12 +609,18 @@ class GridSearch(object):
         return steps
 
     def grid_search(self):
+        if self.training is None:
+            return None
+
+        if self.verbose:
+            self.grid_information()
+
         args = [(self.training, p, r)
                 for p in self.penalties
                 for r in self.regs]
 
-        # coefs = map(self.search_model, args)
-        coefs = poolmap(grid_multiprocessing_model, args)
+        coefs = map(self.search_model, args)
+        # coefs = poolmap(self.search_model, args)
 
         all_coefs = {}
         for (_training_unused, pen, reg), coefs in zip(args, coefs):
@@ -624,26 +638,27 @@ class GridSearch(object):
             sys.stdout.write('.')
             sys.stdout.flush()
 
-        # TODO: Implement file output for slow grid search.
-        # if self.verbose or self.fileoutput:
-        #     raw = model.accuracy()
-        #     tilt = diachronic_tilt(model.allvolumes, 'linear', [])
-        # if self.fileoutput:
-        #     write_coefficients(model.coefficientuples,
-        #                        self.out_filename(penalty, reg))
-        #     Write accuracy and tilt accuracy out to a file too.
-        # if self.verbose:
-        #     display_tilt_accuracy(raw, tilt)
+        # TODO: Implement accuracy file output.
+        if self.verbose or self.fileoutput:
+            raw = model.accuracy()
+            tilt = diachronic_tilt(model.allvolumes, [])
+        if self.fileoutput:
+            model.write_coefficients(self.out_filename(penalty, reg))
+            # Write accuracy and tilt accuracy out to a file too.
+        if self.verbose:
+            display_tilt_accuracy(raw, tilt)
 
         coefficients = {word: (coef, normed)
                         for coef, normed, word in model.coefficientuples}
         return coefficients
 
     def save_word_vectors(self, all_coefs):
-        # create word vectors over dimensions of regularization space
+        # Create word vectors over dimensions of regularization space
         words = self.training.vocablist
         vectors = self.grid_vectors(words, all_coefs)
 
+        # It's a little weird to have a callable class save a file as a
+        # side-effect. That should probably change at some point.
         reduced_features = []
         for p in self.penalties:
             output_data = self.sort_by_covar(vectors[p])
@@ -708,48 +723,7 @@ class GridSearch(object):
             out_vecs[w] = out_v
         return out_vecs
 
-def grid_feature_select(settings, test_step=1, grid_granularity=4):
-    sourcefolder, extension, classpath, outputpath = settings.paths
-    category2sorton, positive_class, datetype, numfeatures, \
-        reg, penalty = settings.classifyconditions
-    pastthreshold, futurethreshold = settings.thresholds
-
-    volumes = VolumeMeta(sourcefolder, extension, classpath,
-                         settings.exclusions, category2sorton, positive_class)
-    training = TrainingData(volumes, pastthreshold, futurethreshold,
-                            datetype, numfeatures, test_step=test_step)
-    model = FeatureSelectModel(training, penalty, reg,
-                               verbose=False, granularity=grid_granularity)
-    write_output_rows(model.header, model.allvolumes, outputpath)
-    write_coefficients(model.coefficientuples, outputpath)
-
-    return model.accuracy(), model.allvolumes, model.coefficientuples
-
-def create_model(paths, exclusions, thresholds, classifyconditions):
-    ''' This is the main function in the module.
-    It can be called externally; it's also called
-    if the module is run directly.
-    '''
-    verbose = False
-    sourcefolder, extension, classpath, outputpath = paths
-    category2sorton, positive_class, datetype, \
-        numfeatures, regularization, penalty = classifyconditions
-    pastthreshold, futurethreshold = thresholds
-
-    volumes = VolumeMeta(sourcefolder, extension, classpath, exclusions,
-                         category2sorton, positive_class)
-    training = TrainingData(volumes, pastthreshold, futurethreshold,
-                            datetype, numfeatures)
-
-    model = LeaveOneOutModel(training, penalty, regularization)
-    write_output_rows(model.header, model.allvolumes, outputpath)
-    write_coefficients(model.coefficientuples, outputpath)
-    if verbose:
-        model.display_coefficients()
-
-    return model.accuracy(), model.allvolumes, model.coefficientuples
-
-def diachronic_tilt(allvolumes, modeltype, datelimits, plot=False):
+def diachronic_tilt(allvolumes, datelimits, plot=False):
     ''' Takes a set of predictions produced by a model that knows nothing about date,
     and divides it along a line with a diachronic tilt. We need to do this in a way
     that doesn't violate crossvalidation. I.e., we shouldn't "know" anything
@@ -780,7 +754,8 @@ def diachronic_tilt(allvolumes, modeltype, datelimits, plot=False):
 
     if plot:
         plt.clf()
-        plt.axis([xmin - 2, xmax + 2, ymin - yrange * 0.09, ymax + yrange * 0.02])
+        plt.axis([xmin - 2, xmax + 2,
+                  ymin - yrange * 0.09, ymax + yrange * 0.02])
         plt.plot(reviewedx, reviewedy, 'ro')
         plt.plot(randomx, randomy, 'k+')
         plt.plot(untestedreviewedx, untestedreviewedy, 'bo')
@@ -790,43 +765,10 @@ def diachronic_tilt(allvolumes, modeltype, datelimits, plot=False):
                      if l != 'untested'])
     x, y, trueclass = map(np.array, test_xyc)
 
-    if modeltype == 'logistic':
-        # all this is DEPRECATED
-        print("Hey, you're attempting to use the logistic-tilt option")
-        print("that we deactivated. Go in and uncomment the code.")
-
-        # DEPRECATED
-        # if len(datelimits) == 2:
-        #     # In this case we construct a subset of data to model on.
-        #     pastthreshold, futurethreshold = datelimits
-        #     d_l_c = [(d, l, c)
-        #              for d, l, c in zip(date, logistic, classvector)
-        #              if pastthreshold <= d <= futurethreshold and
-        #              l != 'untested']
-        # else:
-        #     d_l_c = [(d, l, c)
-        #              for d, l, c in zip(date, logistic, classvector)
-        #              if l != 'untested']
-
-        # data = pd.DataFrame([(l, d) for d, l, c in d_l_c])
-        # responsevariable = [c for d, l, c in d_l_c]
-
-        # newmodel = LogisticRegression(C = 100000)
-        # newmodel.fit(data, responsevariable)
-        # coefficients = newmodel.coef_[0]
-
-        # intercept = newmodel.intercept_[0] / (-coefficients[0])
-        # slope = coefficients[1] / (-coefficients[0])
-
-        # p = np.poly1d([slope, intercept])
-
-    elif modeltype == 'linear':
-        # what we actually do
-
-        z = np.polyfit(x, y, 1)
-        p = np.poly1d(z)
-        slope = z[0]
-        intercept = z[1]
+    z = np.polyfit(x, y, 1)
+    p = np.poly1d(z)
+    slope = z[0]
+    intercept = z[1]
 
     if plot:
         plt.plot(x, p(x), "b-")
@@ -847,68 +789,13 @@ def display_tilt_accuracy(rawaccuracy, tiltaccuracy):
     print(msg, str(tiltaccuracy))
 
 if __name__ == '__main__':
+    # If this class is called directly, it creates a single model using the
+    # default settings from `replicate.py`. Ordinarily, we wouldn't create a
+    # circular import this way, but because this only happens when the script
+    # is run directly, it's OK.
 
-    # If this class is called directly, it creates a single model using the default
-    # settings set below.
+    from replicate import Settings
 
-    # PATHS.
-
-    # sourcefolder = '/Users/tunder/Dropbox/GenreProject/python/reception/fiction/texts/'
-    # extension = '.fic.tsv'
-    # classpath = '/Users/tunder/Dropbox/GenreProject/python/reception/fiction/masterficmeta.csv'
-    # outputpath = '/Users/tunder/Dropbox/GenreProject/python/reception/fiction/predictions.csv'
-
-    sourcefolder = 'poems/'
-    extension = '.poe.tsv'
-    classpath = 'poemeta.csv'
-    outputpath = 'logisticpredictions.csv'
-
-    # We can simply exclude volumes from consideration on the basis on any
-    # metadata category we want, using the dictionaries defined below.
-
-    # EXCLUSIONS.
-
-    excludeif = dict()
-    excludeif['pubname'] = 'TEM'
-    # We're not using reviews from Tait's.
-
-    excludeif['recept'] = 'addcanon'
-    # We don't ordinarily include canonical volumes that were not in either sample.
-    # These are included only if we're testing the canon specifically.
-
-    excludeifnot = dict()
-    excludeabove = dict()
-    excludebelow = dict()
-
-    excludebelow['inferreddate'] = 1800
-    excludeabove['inferreddate'] = 1950
-    sizecap = 360
-
-    # For more historically-interesting kinds of questions, we can limit the part
-    # of the dataset that gets TRAINED on, while permitting the whole dataset to
-    # be PREDICTED. (Note that we always exclude authors from their own training
-    # set; this is in addition to that.) The variables futurethreshold and
-    # pastthreshold set the chronological limits of the training set, inclusive
-    # of the threshold itself.
-
-    # THRESHOLDS
-
-    pastthreshold = -1
-    futurethreshold = 2000
-
-    # CLASSIFY CONDITIONS
-
-    positive_class = 'rev'
-    category2sorton = 'reviewed'
-    datetype = 'firstpub'
-    numfeatures = 3200
-    regularization = .00007
-
-    paths = (sourcefolder, extension, classpath, outputpath)
-    exclusions = (excludeif, excludeifnot, excludebelow, excludeabove, sizecap)
-    thresholds = (pastthreshold, futurethreshold)
-    classifyconditions = (category2sorton, positive_class, datetype, numfeatures, regularization)
-
-    rawaccuracy, allvolumes, coefficientuples = create_model(paths, exclusions, thresholds, classifyconditions)
-    tiltaccuracy = diachronic_tilt(allvolumes, 'linear', [])
+    rawaccuracy, allvolumes, coefficientuples = create_model(Settings())
+    tiltaccuracy = diachronic_tilt(allvolumes, [])
     display_tilt_accuracy(rawaccuracy, tiltaccuracy)

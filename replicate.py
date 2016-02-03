@@ -43,6 +43,12 @@ class Settings(object):
     datetype = 'firstpub'
     numfeatures = 3200
 
+    # VALIDATION SETTINGS
+    kfold_step = 1
+
+    # GRID SEARCH SETTINGS
+    feature_selector = None
+
     @property
     def paths(self):
         return (self.sourcefolder, self.extension,
@@ -62,15 +68,21 @@ class Settings(object):
         return (self.category2sorton, self.positive_class, self.datetype,
                 self.numfeatures, self.regularization, self.penalty)
 
-def generic_model(s):
-    rawaccuracy, allvolumes, coefficientuples = pc.create_model(
-        s.paths, s.exclusions, s.thresholds, s.classifyconditions
-    )
+def generic_model(sts, model_class=pc.LeaveOneOutModel, verbose=False):
+    volumes = pc.VolumeMeta(sts.sourcefolder, sts.extension, sts.classpath,
+                            sts.exclusions, sts.category2sorton,
+                            sts.positive_class)
+    training = pc.TrainingData(volumes, sts.pastthreshold, sts.futurethreshold,
+                               sts.datetype, sts.numfeatures, sts.kfold_step)
+    model = model_class(training, sts.penalty, sts.regularization,
+                        sts.feature_selector)
+    model.write_output_rows(sts.outputpath)
+    model.write_coefficients(sts.outputpath)
+    if verbose:
+        model.display_coefficients()
 
-    tiltaccuracy = pc.diachronic_tilt(allvolumes, 'linear', [])
-    pc.display_tilt_accuracy(rawaccuracy, tiltaccuracy)
-
-    return rawaccuracy, tiltaccuracy
+    tiltaccuracy = pc.diachronic_tilt(model.allvolumes, [])
+    pc.display_tilt_accuracy(model.accuracy(), tiltaccuracy)
 
 def nations(s):
     s.outputpath = 'nationalpredictions.csv'
@@ -124,11 +136,8 @@ def quarters(s):
 
 def grid(s):
     s.outputpath = 'gridfinalmodel.csv'
-    rawaccuracy, allvolumes, coefficientuples = pc.grid_feature_select(s)
-
-    tiltaccuracy = pc.diachronic_tilt(allvolumes, 'linear', [])
-    pc.display_tilt_accuracy(rawaccuracy, tiltaccuracy)
-
+    s.feature_selector = pc.GridSearch(start_exp=1, end_exp=-2, granularity=2)
+    generic_model(s, pc.FeatureSelectModel)
 
 class FloatRange(object):
     def __init__(self, low, high):
@@ -185,14 +194,14 @@ def regularization_instructions():
     print("but test error may go up.)")
     print()
     print("You may select a value between 0.0 and 10.0. Default is")
-    print("0.0007")
+    print("0.000007")
     print()
 
 def get_args():
     args = dict(zip(['_', 'command', 'penalty', 'regularization'], sys.argv))
     command = args.get('command')
     penalty = args.get('penalty', 'l2')
-    regularization = args.get('regularization', 0.0007)
+    regularization = args.get('regularization', 0.00007)
     if (command not in allowable or
             penalty not in allowable_penalty or
             regularization not in allowable_regularization):
@@ -203,7 +212,7 @@ def get_args():
 def get_clui_args():
     inst = instructions, penalty_instructions, regularization_instructions
     allow = allowable, allowable_penalty, allowable_regularization
-    default = 'full', 'l2', 0.0007
+    default = 'full', 'l2', 0.00007
     prompt = ("Which option do you want to run? ",
               "Which penalty would you like to use? ",
               "What parameter would you like to use? ")
