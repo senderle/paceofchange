@@ -4,11 +4,6 @@
 
 import parallel_crossvalidate as pc
 import sys
-from pprint import pprint
-from numpy import (recarray as np_recarray,
-                   savetxt as np_savetxt,
-                   abs as np_abs,
-                   sum as np_sum)
 
 class Settings(object):
     # REGULARIZATION
@@ -22,7 +17,6 @@ class Settings(object):
     outputpath = 'mainmodelpredictions.csv'
 
     # EXCLUSIONS
-
     # We're not using reviews from Tait's.
     # We don't ordinarily include canonical volumes that were not in either sample.
     excludeif = {'pubname': 'TEM',
@@ -68,19 +62,14 @@ class Settings(object):
         return (self.category2sorton, self.positive_class, self.datetype,
                 self.numfeatures, self.regularization, self.penalty)
 
-def display_tilt_accuracy(rawaccuracy, tiltaccuracy):
-    msg = 'If we divide the dataset with a horizontal line at 0.5, accuracy is:'
-    print(msg, str(rawaccuracy))
-    msg = "Divided with a line fit to the data trend, it's"
-    print(msg, str(tiltaccuracy))
-
 def generic_model(s):
     rawaccuracy, allvolumes, coefficientuples = pc.create_model(
         s.paths, s.exclusions, s.thresholds, s.classifyconditions
     )
 
     tiltaccuracy = pc.diachronic_tilt(allvolumes, 'linear', [])
-    display_tilt_accuracy(rawaccuracy, tiltaccuracy)
+    pc.display_tilt_accuracy(rawaccuracy, tiltaccuracy)
+
     return rawaccuracy, tiltaccuracy
 
 def nations(s):
@@ -134,121 +123,12 @@ def quarters(s):
         # I removed the `theseresults` lines here; see above. --SE
 
 def grid(s):
-    regs = grid_steps(1, -2, 8)
-    penalties = ['l1', 'l2']
+    s.outputpath = 'gridfinalmodel.csv'
+    rawaccuracy, allvolumes, coefficientuples = pc.grid_feature_select(s)
 
-    grid_information(penalties, regs)
+    tiltaccuracy = pc.diachronic_tilt(allvolumes, 'linear', [])
+    pc.display_tilt_accuracy(rawaccuracy, tiltaccuracy)
 
-    out_filename = 'gridpredictions_p-{}_r-{}.csv'.format
-    results = []
-    for p in penalties:
-        for r in regs:
-            s.penalty = p
-            s.regularization = r
-            s.outputpath = out_filename(p, r)
-            print()
-            print('Penalty: {}     Regularization: {}'.format(p, r))
-            print()
-            raw, tilt = generic_model(s)
-            results.append({'penalty': p,
-                            'regularization': r,
-                            'rawaccuracy': raw,
-                            'tiltaccuracy': tilt})
-    print()
-    print("Accuracy for all values:")
-    pprint(results)
-    print()
-
-    coef_filename = 'gridpredictions_p-{}_r-{}.coefs.csv'.format
-    words = grid_words(coef_filename('l2', regs[0]))
-    vectors = grid_vectors(words, penalties, regs, coef_filename)
-    for p in penalties:
-        out_gridwords = 'gridwords_{}.csv'.format
-        header = ', '.join(vectors[p].dtype.names)
-        np_savetxt(out_gridwords(p), vectors[p],
-                   header=header, fmt='%8.5f')
-
-def grid_information(penalties, regs):
-    model_descr = ' {:<15} {}'.format
-    print("Generating models for the following penalty-parameter pairs:")
-    print()
-    print("Penalty Type    Regularization Parameter")
-    print("\n".join(model_descr(p, r) for p in penalties for r in regs))
-    print()
-    nmodels = len(penalties) * len(regs)
-    print("Total: {}".format(nmodels))
-    nhours = (nmodels * 5) // 60
-    nminutes = (nmodels * 5) % 60
-    print("Approximate time requred: {} hours, {} minutes.".format(nhours,
-                                                                   nminutes))
-
-def grid_steps(start_exp, end_exp, granularity):
-    """A convenience function that calculates steps in log10 space. Examples:
-
-        grid_steps(0, 3, 1) -> [1, 10, 100]
-        grid_steps(0, 3, 2) -> [1, sqrt(10), 10, sqrt(100), 100, sqrt(1000)]
-        grid_steps(0, -4, 1) -> [1, 0.1, 0.01, 0.001]
-    """
-    direction = -1 if start_exp > end_exp else 1
-    roundto = 1 - min(min(start_exp, end_exp), 0)
-    exps = range(start_exp * granularity, end_exp * granularity, direction)
-    return [round(10 ** (e / granularity), roundto) for e in exps]
-
-def grid_words(filename, nwords=0):
-    """Select the top nwords / 2 and bottom nwords / 2 words based on
-    coefficients in a given coefficient csv file with this format:
-
-        word1,normed_coefficient1,coefficient1
-        word2,normed_coefficient2,coefficient2
-        ...
-    """
-    with open(filename) as f:
-        rows = (line.split(',') for line in f)
-        rows = (r for r in rows if len(r) == 3)
-        rows = [(float(coef), word) for word, coef, _ in rows]
-
-    nwords = int(nwords) if nwords > 0 else len(rows)
-    words = [word for coef, word in sorted(rows)]
-    return words[:nwords // 2] + words[-nwords // 2:]
-
-def grid_vectors(words, penalties, regs, out_filename):
-    """Create a numpy record array, where `a.l1.fear` refers to the L1 penalty
-    coefficients for the word 'fear' across all regularization parameter
-    values, represented as percentages of the total L1 penalty."""
-    word_dtype = [('model_regularization_param', float)]
-    word_dtype.extend([(w, float) for w in words])
-    vectors = np_recarray(len(regs), dtype=[('l1', word_dtype),
-                                            ('l2', word_dtype)])
-
-    for pen in penalties:
-        for r_ix, reg in enumerate(regs):
-            vectors[pen]['model_regularization_param'][r_ix] = reg
-            word_coefs = read_word_coefs(words, out_filename(pen, reg))
-            for word in words:
-                vectors[pen][word][r_ix] = word_coefs.get(word, 0)
-
-    # Calculate the effective L1 penality for each regularization value
-    # and normalize, such that each weight is represented as a
-    # percentage of model penalty. The L1 and L2 penalties co-vary
-    # monotonically, so this will distort proportions, but will not
-    # affect the order of the results.
-    for pen in penalties:
-        pen_sum = np_sum(np_abs(vectors[pen][word]) for word in words)
-        for word in words:
-            vectors[pen][word] /= pen_sum
-
-    return vectors
-
-def read_word_coefs(words, filename):
-    wordset = set(words)
-    word_coefs = {}
-    with open(filename) as f:
-        rows = (line.split(',') for line in f)
-        rows = [row for row in rows if len(row) == 3]
-        for word, normed, coef in rows:
-            if word in wordset:
-                word_coefs[word] = coef
-    return word_coefs
 
 class FloatRange(object):
     def __init__(self, low, high):
@@ -323,7 +203,7 @@ def get_args():
 def get_clui_args():
     inst = instructions, penalty_instructions, regularization_instructions
     allow = allowable, allowable_penalty, allowable_regularization
-    default = 'full', 'l2', 0.00007
+    default = 'full', 'l2', 0.0007
     prompt = ("Which option do you want to run? ",
               "Which penalty would you like to use? ",
               "What parameter would you like to use? ")

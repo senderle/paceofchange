@@ -2,15 +2,16 @@
 
 # Functions that process metadata for parallel_crossvalidate.py
 
-import csv, random
+import csv
+import random
 
 def dirty_pairtree(htid):
     period = htid.find('.')
     prefix = htid[0:period]
-    postfix = htid[(period+1): ]
+    postfix = htid[(period+1):]
     if '=' in postfix:
-        postfix = postfix.replace('+',':')
-        postfix = postfix.replace('=','/')
+        postfix = postfix.replace('+', ':')
+        postfix = postfix.replace('=', '/')
     dirtyname = prefix + "." + postfix
     return dirtyname
 
@@ -34,7 +35,7 @@ def get_metadata(classpath, volumeIDs, excludeif, excludeifnot, excludebelow, ex
     print(classpath)
     metadict = dict()
 
-    with open(classpath, encoding = 'utf-8') as f:
+    with open(classpath, encoding='utf-8') as f:
         reader = csv.DictReader(f)
 
         anonctr = 0
@@ -72,8 +73,8 @@ def get_metadata(classpath, volumeIDs, excludeif, excludeifnot, excludebelow, ex
             gender = row['gender'].rstrip()
             nation = row['nationality'].rstrip()
 
-            #if pubdate >= 1880:
-                #continue
+            # if pubdate >= 1880:
+            #     continue
 
             if nation == 'ca':
                 nation = 'us'
@@ -169,28 +170,19 @@ def sort_by_proximity(idlist, dictionary, target):
     sortedlist = [x[1] for x in decorated]
     return sortedlist
 
-def label_classes(metadict, category2sorton, positive_class, sizecap):
+def classlabels(metadict, category2sorton, positive_class, sizecap):
     ''' This takes as input the metadata dictionary generated
     by get_metadata. It subsets that dictionary into a
     positive class and a negative class. Instances that belong
     to neither class get ignored.
     '''
 
-    all_instances = set([x for x in metadict.keys()])
-
-    # The first stage is to find positive instances.
-
-    all_positives = set()
-
-    for key, value in metadict.items():
-        if value[category2sorton] == positive_class:
-            all_positives.add(key)
-
-    all_negatives = all_instances - all_positives
-    iterator = list(all_negatives)
-    for item in iterator:
-        if metadict[item]['reviewed'] == 'addedbecausecanon':
-            all_negatives.remove(item)
+    all_instances = set(metadict)
+    all_positives = set(key for key, meta in metadict.items()
+                        if meta[category2sorton] == positive_class)
+    all_canon = set(key for key, meta in metadict.items()
+                    if meta['reviewed'] == 'addedbecausecanon')
+    all_negatives = all_instances - all_positives - all_canon
 
     if sizecap > 0 and len(all_positives) > sizecap:
         positives = random.sample(all_positives, sizecap)
@@ -200,11 +192,11 @@ def label_classes(metadict, category2sorton, positive_class, sizecap):
 
     # If there's a sizecap we also want to ensure classes have
     # matching sizes and roughly equal distributions over time.
-
+    # This should probably be broken out into its own function.
     numpositives = len(all_positives)
 
     if sizecap > 0 and len(all_negatives) > numpositives:
-        if not 'date' in category2sorton:
+        if 'date' not in category2sorton:
             available_negatives = list(all_negatives)
             negatives = list()
 
@@ -226,7 +218,6 @@ def label_classes(metadict, category2sorton, positive_class, sizecap):
 
     # Now we have two lists of ids.
 
-    IDsToUse = set()
     classdictionary = dict()
 
     print()
@@ -234,31 +225,26 @@ def label_classes(metadict, category2sorton, positive_class, sizecap):
     print(str(len(negatives)) + " negative instances.")
 
     for anid in positives:
-        IDsToUse.add(anid)
         classdictionary[anid] = 1
 
     for anid in negatives:
-        IDsToUse.add(anid)
         classdictionary[anid] = 0
 
     for key, value in metadict.items():
         if value['reviewed'] == 'addedbecausecanon':
-            IDsToUse.add(key)
             classdictionary[key] = 0
     # We add the canon supplement, but don't train on it.
 
-    return IDsToUse, classdictionary
+    return classdictionary
 
+def label_classes(*args, **kwargs):
+    # The function `classlabels` above does what `label_classes` used to do,
+    # except that it also created a set that contained the exact same keys as
+    # classdictionary. This struck me as unnecessary so I changed it, but
+    # I left the API the same. -SE
+    cd = classlabels(*args, **kwargs)
+    return set(cd), cd
 
-
-
-
-
-
-
-
-
-
-
-
-
+# I removed the binormal feature selection code here since it wasn't being
+# used or maintained; it's in the repository if it ever needs to be revived,
+# but in the meanwhile it's just cluttering up the codebase. -SE

@@ -1,17 +1,11 @@
 # modelingprocess.py
 
 import numpy as np
-import pandas as pd
 from models import LogisticRegression
 
 def sliceframe(dataframe, yvals, excludedrows, testrow):
-    numrows = len(dataframe)
-    newyvals = list(yvals)
-    for i in excludedrows:
-        del newyvals[i]
-        # NB: This only works if we assume that excluded rows
-        # has already been sorted in descending order !!!!!!!
-        # otherwise indexes will slide around as you delete
+    exrowset = set(excludedrows)
+    newyvals = [y for i, y in enumerate(yvals) if i not in exrowset]
 
     trainingset = dataframe.drop(dataframe.index[excludedrows])
 
