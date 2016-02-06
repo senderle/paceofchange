@@ -60,7 +60,7 @@ def model_one_volume(data5tuple):
     newmodel.fit(trainingset, yvals)
 
     testset = (testset - means) / stdevs
-    prediction = newmodel.predict_proba(testset)[0][1]
+    prediction = newmodel.predict_proba(testset.reshape(1, -1))[0][1]
     if i % 50 == 0:
         print(i)
     # print(str(i) + "  -  " + str(len(listtoexclude)))
