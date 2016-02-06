@@ -15,7 +15,10 @@ from sklearn.linear_model import LogisticRegression
 import modelingprocess
 import metafilter
 # from scipy.stats import norm
+import matplotlib
+matplotlib.use("Agg")  # Get rid of the annoying Python rocket.
 import matplotlib.pyplot as plt
+
 
 usedate = False
 # Leave this flag false unless you plan major
