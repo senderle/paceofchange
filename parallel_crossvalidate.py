@@ -96,13 +96,15 @@ def normalizearray(featurearray, usedate):
             # If we're using date we don't normalize the last column.
             means.append(thismean)
             stdevs.append(thisstdev)
-            featurearray.iloc[:, featureidx] = (thiscolumn - thismean) / thisstdev
+            featurearray.iloc[:, featureidx] = \
+                (thiscolumn - thismean) / thisstdev
         else:
             print('FLAG')
             means.append(thismean)
             thisstdev = 0.1
             stdevs.append(thisstdev)
-            featurearray.iloc[:, featureidx] = (thiscolumn - thismean) / thisstdev
+            featurearray.iloc[:, featureidx] = \
+                (thiscolumn - thismean) / thisstdev
             # We set a small stdev for date.
 
     return featurearray, means, stdevs
@@ -130,6 +132,9 @@ class VolumeMeta(object):
 
         self.ordered_ids = [vid for vid in all_ids
                             if vid in self.label]
+        self.metavector = [self.meta[oid] for oid in self]
+        self.labelvector = [self.label[oid] for oid in self]
+        self.pathvector = [self.path[oid] for oid in self]
         self._groupcache = {}
 
     def __iter__(self):
@@ -146,11 +151,11 @@ class VolumeMeta(object):
 
     def itermeta(self, key):
         if key is None:
-            return (self.meta[oid] for oid in self)
+            return iter(self.metavector)
         elif key == 'path':
-            return (self.path[oid] for oid in self)
+            return iter(self.pathvector)
         elif key == 'label':
-            return (self.label[oid] for oid in self)
+            return iter(self.labelvector)
         else:
             return (self.meta[oid][key] for oid in self)
 
@@ -328,7 +333,7 @@ class TrainingData(object):
 
     @property
     def classvector(self):
-        return list(self.volumes.itermeta('label'))
+        return self.volumes.labelvector
 
 def write_coefficients(coefficientuples, outputpath):
     coefficientpath = outputpath.replace('.csv', '.coefs.csv')
@@ -547,19 +552,13 @@ class FeatureSelectModel(_ValidationModel):
             self.training.set_vocablist()
             iterations += 1
         print()
-        self.training.set_vocablist(all_features)
+        self.training.set_vocablist(list(all_features))
         return predictions
 
-def poolmap(func, seq):
-    pool = Pool(processes=16)
-    result = pool.map(func, seq)
-    pool.close()  # Otherwise processes build up and trigger a
-    pool.join()   # too-many-files-open error.
-    return result
-
 class GridSearch(object):
-    def __init__(self, start_exp=None, end_exp=None, granularity=None,
-                 use_l2=False, fileoutput=False, verbose=False, ticks=True):
+    def __init__(self, training=None, start_exp=None, end_exp=None,
+                 granularity=None, use_l2=False, fileoutput=False,
+                 verbose=False, ticks=True):
         # Stored as a list to enable multiple penalties in the future:
         self.penalties = ['l2'] if use_l2 else ['l1']
         self.regs = self.exp_steps(
@@ -575,13 +574,13 @@ class GridSearch(object):
         self.ticks = ticks
         self.fileoutput = fileoutput
 
-        self.training = None
+        self.training = training
         self.best_words = None
 
     def __call__(self, training=None):
         if training is not None:
             self.training = training
-            self.best_words = self.grid_search()
+        self.best_words = self.grid_search()[0]
         return self.best_words
 
     def grid_information(self):
@@ -619,13 +618,20 @@ class GridSearch(object):
                 for p in self.penalties
                 for r in self.regs]
 
-        coefs = map(self.search_model, args)
-        # coefs = poolmap(self.search_model, args)
+        coefs = self.poolmap(self.search_model, args)
 
         all_coefs = {}
         for (_training_unused, pen, reg), coefs in zip(args, coefs):
             all_coefs[pen, reg] = coefs
         return self.save_word_vectors(all_coefs)
+
+    @staticmethod
+    def poolmap(func, seq):
+        pool = Pool(processes=8)
+        result = pool.map(func, seq)
+        pool.close()  # Otherwise processes build up and trigger a
+        pool.join()   # too-many-files-open error.
+        return result
 
     def search_model(self, args):
         training, penalty, reg = args
@@ -724,13 +730,14 @@ class GridSearch(object):
         return out_vecs
 
 def diachronic_tilt(allvolumes, datelimits, plot=False):
-    ''' Takes a set of predictions produced by a model that knows nothing about date,
-    and divides it along a line with a diachronic tilt. We need to do this in a way
-    that doesn't violate crossvalidation. I.e., we shouldn't "know" anything
-    that the model didn't know. We tried a couple of different ways to do this, but
-    the simplest and actually most reliable is to divide the whole dataset along a
-    linear central trend line for the data!
-    '''
+    """Takes a set of predictions produced by a model that knows
+    nothing about date, and divides it along a line with a diachronic
+    tilt. We need to do this in a way that doesn't violate crossvalidation.
+    I.e., we shouldn't "know" anything that the model didn't know. We
+    tried a couple of different ways to do this, but the simplest and
+    actually most reliable is to divide the whole dataset along a linear
+    central trend line for the data!
+    """
 
     date = [vol[3] for vol in allvolumes]
     logistic = [vol[8] for vol in allvolumes]
@@ -794,8 +801,5 @@ if __name__ == '__main__':
     # circular import this way, but because this only happens when the script
     # is run directly, it's OK.
 
-    from replicate import Settings
-
-    rawaccuracy, allvolumes, coefficientuples = create_model(Settings())
-    tiltaccuracy = diachronic_tilt(allvolumes, [])
-    display_tilt_accuracy(rawaccuracy, tiltaccuracy)
+    from replicate import Settings, generic_model
+    generic_model(Settings())

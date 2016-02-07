@@ -20,7 +20,7 @@ class Settings(object):
     # We're not using reviews from Tait's.
     # We don't ordinarily include canonical volumes that were not in either sample.
     excludeif = {'pubname': 'TEM',
-                 'recept': 'addcannon'}
+                 'recept': 'addcanon'}
 
     excludeifnot = {}
     excludebelow = {'firstpub': 1700}
@@ -28,7 +28,7 @@ class Settings(object):
     sizecap = 360
 
     # THRESHOLDS
-    # For more historically-interesting kinds of questions, we can limit the part
+    # For more historically-interesting kinds of questions, we limit the part
     # of the dataset that gets TRAINED on, while permitting the whole dataset to
     # be PREDICTED. (Note that we always exclude authors from their own training
     # set; this is in addition to that.) The variables futurethreshold and
@@ -44,81 +44,79 @@ class Settings(object):
     numfeatures = 3200
 
     # VALIDATION SETTINGS
-    kfold_step = 1
+    kfold_step = 6
 
     # GRID SEARCH SETTINGS
-    feature_selector = None
-
-    @property
-    def paths(self):
-        return (self.sourcefolder, self.extension,
-                self.classpath, self.outputpath)
+    start_exp = 1
+    end_exp = -2
+    granularity = 2
 
     @property
     def exclusions(self):
         return (self.excludeif, self.excludeifnot, self.excludebelow,
                 self.excludeabove, self.sizecap)
 
-    @property
-    def thresholds(self):
-        return self.pastthreshold, self.futurethreshold
+def model_training_data(settings):
+    volumes = pc.VolumeMeta(settings.sourcefolder, settings.extension,
+                            settings.classpath, settings.exclusions,
+                            settings.category2sorton, settings.positive_class)
+    training = pc.TrainingData(volumes, settings.pastthreshold,
+                               settings.futurethreshold, settings.datetype,
+                               settings.numfeatures, settings.kfold_step)
+    return training
 
-    @property
-    def classifyconditions(self):
-        return (self.category2sorton, self.positive_class, self.datetype,
-                self.numfeatures, self.regularization, self.penalty)
-
-def generic_model(sts, model_class=pc.LeaveOneOutModel, verbose=False):
-    volumes = pc.VolumeMeta(sts.sourcefolder, sts.extension, sts.classpath,
-                            sts.exclusions, sts.category2sorton,
-                            sts.positive_class)
-    training = pc.TrainingData(volumes, sts.pastthreshold, sts.futurethreshold,
-                               sts.datetype, sts.numfeatures, sts.kfold_step)
-    model = model_class(training, sts.penalty, sts.regularization,
-                        sts.feature_selector)
-    model.write_output_rows(sts.outputpath)
-    model.write_coefficients(sts.outputpath)
+def model_output(model, path, verbose=False):
+    model.write_output_rows(path)
+    model.write_coefficients(path)
     if verbose:
         model.display_coefficients()
 
     tiltaccuracy = pc.diachronic_tilt(model.allvolumes, [])
     pc.display_tilt_accuracy(model.accuracy(), tiltaccuracy)
 
-def nations(s):
-    s.outputpath = 'nationalpredictions.csv'
-    s.pastthreshold = 1700
-    s.positive_class = 'uk'
-    s.category2sorton = 'nation'
-    generic_model(s)
+def leave_one_out_model(settings):
+    training = model_training_data(settings)
+    model = pc.LeaveOneOutModel(
+        training, settings.penalty, settings.regularization
+    )
 
-def gender(s):
-    s.outputpath = 'genderpredictions.csv'
-    s.pastthreshold = 1700
-    s.positive_class = 'f'
-    s.category2sorton = 'gender'
-    generic_model(s)
+    model_output(model, settings.outputpath)
 
-def canon(s):
-    s.outputpath = 'canonpredictions.csv'
-    del s.excludeif['recept']
-    s.sizecap = 450
-    generic_model
+def nations(settings):
+    settings.outputpath = 'nationalpredictions.csv'
+    settings.pastthreshold = 1700
+    settings.positive_class = 'uk'
+    settings.category2sorton = 'nation'
+    leave_one_out_model(settings)
 
-def halves(s):
+def gender(settings):
+    settings.outputpath = 'genderpredictions.csv'
+    settings.pastthreshold = 1700
+    settings.positive_class = 'f'
+    settings.category2sorton = 'gender'
+    leave_one_out_model(settings)
+
+def canon(settings):
+    settings.outputpath = 'canonpredictions.csv'
+    del settings.excludeif['recept']
+    settings.sizecap = 450
+    leave_one_out_model(settings)
+
+def halves(settings):
     # DO THE FIRST HALF.
-    s.outputpath = 'firsthalfpredictions.csv'
-    s.excludebelow['firstpub'] = 1800
-    s.excludeabove['firstpub'] = 1875
-    s.sizecap = 300
-    generic_model(s)
+    settings.outputpath = 'firsthalfpredictions.csv'
+    settings.excludebelow['firstpub'] = 1800
+    settings.excludeabove['firstpub'] = 1875
+    settings.sizecap = 300
+    leave_one_out_model(settings)
 
     # NOW DO THE SECOND HALF.
-    s.outputpath = 'secondhalfpredictions.csv'
-    s.excludebelow['firstpub'] = 1876
-    s.excludeabove['firstpub'] = 1925
-    generic_model(s)
+    settings.outputpath = 'secondhalfpredictions.csv'
+    settings.excludebelow['firstpub'] = 1876
+    settings.excludeabove['firstpub'] = 1925
+    leave_one_out_model(settings)
 
-def quarters(s):
+def quarters(settings):
     quarteroptions = [('1820-44predictions.csv', 1800, 1844),
                       ('1845-69predictions.csv', 1845, 1869),
                       ('1870-94predictions.csv', 1870, 1894),
@@ -127,17 +125,25 @@ def quarters(s):
 
     for outputpath, pastthreshold, futurethreshold in quarteroptions:
         print(pastthreshold)
-        s.outputpath = outputpath
-        s.pastthreshold = pastthreshold
-        s.futurethreshold = futurethreshold
+        settings.outputpath = outputpath
+        settings.pastthreshold = pastthreshold
+        settings.futurethreshold = futurethreshold
 
-        generic_model(s)
+        leave_one_out_model(settings)
         # I removed the `theseresults` lines here; see above. --SE
 
-def grid(s):
-    s.outputpath = 'gridfinalmodel.csv'
-    s.feature_selector = pc.GridSearch(start_exp=1, end_exp=-2, granularity=2)
-    generic_model(s, pc.FeatureSelectModel)
+def grid(settings):
+    training = model_training_data(settings)
+    grid = pc.GridSearch(
+        training, settings.start_exp, settings.end_exp, settings.granularity
+    )
+
+    model = pc.FeatureSelectModel(
+        training, settings.penalty, settings.regularization,
+        feature_selector=grid
+    )
+
+    model_output(model, 'gridfinalmodel.csv')
 
 class FloatRange(object):
     def __init__(self, low, high):
@@ -152,7 +158,7 @@ class FloatRange(object):
         return self.low < x <= self.high
 
 model_dispatch = {
-    'full': generic_model,
+    'full': leave_one_out_model,
     'quarters': quarters,
     'nations': nations,
     'gender': gender,
@@ -238,10 +244,10 @@ def run_model(model_dispatch):
     else:
         command, penalty, regularization = get_clui_args()
 
-    s = Settings()
-    s.penalty = penalty
-    s.regularization = regularization
-    model_dispatch[command](s)
+    settings = Settings()
+    settings.penalty = penalty
+    settings.regularization = regularization
+    model_dispatch[command](settings)
 
 if __name__ == '__main__':
     run_model(model_dispatch)

@@ -145,9 +145,8 @@ def get_metadata(classpath, volumeIDs, excludeif, excludeifnot, excludebelow, ex
     allidsindir = set([dirty_pairtree(x) for x in volumeIDs])
     missinginmeta = len(allidsindir - allidsinmeta)
     missingindir = len(allidsinmeta - allidsindir)
-    print("We have " + str(missinginmeta) + " volumes in missing in metadata, and")
+    print("We have " + str(missinginmeta) + " volumes missing in metadata, and")
     print(str(missingindir) + " volumes missing in the directory.")
-    print(allidsinmeta - allidsindir)
 
     for anid in volumeIDs:
         dirtyid = dirty_pairtree(anid)
@@ -188,7 +187,6 @@ def classlabels(metadict, category2sorton, positive_class, sizecap):
         positives = random.sample(all_positives, sizecap)
     else:
         positives = list(all_positives)
-        print(len(all_positives))
 
     # If there's a sizecap we also want to ensure classes have
     # matching sizes and roughly equal distributions over time.
