@@ -43,7 +43,7 @@ class Settings(object):
 
     # VALIDATION SETTINGS
     # kfold_step = 4
-    kfold_step = 24
+    kfold_step = 1
 
     # GRID SEARCH SETTINGS
     start_exp = 1

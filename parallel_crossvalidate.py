@@ -49,32 +49,7 @@ def forceint(astring):
 
     return intval
 
-def get_features(wordcounts, wordlist):
-    numwords = len(wordlist)
-    wordvec = np.zeros(numwords)
-    for idx, word in enumerate(wordlist):
-        if word in wordcounts:
-            wordvec[idx] = wordcounts[word]
-
-    return wordvec
-
-# In an earlier version of this script, we sometimes used
-# "publication date" as a feature, to see what would happen.
-# In the current version, we don't. Some of the functions
-# and features remain, but they are deprecated. E.g.:
-
-def get_features_with_date(wordcounts, wordlist, date, totalcount):
-    numwords = len(wordlist)
-    wordvec = np.zeros(numwords + 1)
-    for idx, word in enumerate(wordlist):
-        if word in wordcounts:
-            wordvec[idx] = wordcounts[word]
-
-    wordvec = wordvec / (totalcount + 0.0001)
-    wordvec[numwords] = date
-    return wordvec
-
-def normalizearray(featurearray, usedate):
+def normalizearray(featurearray):
     '''Normalizes an array by centering on means and
     scaling by standard deviations. Also returns the
     means and standard deviations for features, so that
@@ -84,7 +59,6 @@ def normalizearray(featurearray, usedate):
     numinstances, numfeatures = featurearray.shape
     means = list()
     stdevs = list()
-    lastcolumn = numfeatures - 1
     for featureidx in range(numfeatures):
 
         thiscolumn = featurearray.iloc[:, featureidx]
@@ -92,25 +66,15 @@ def normalizearray(featurearray, usedate):
 
         thisstdev = np.std(thiscolumn)
 
-        if (not usedate) or featureidx != lastcolumn:
-            # If we're using date we don't normalize the last column.
-            means.append(thismean)
-            stdevs.append(thisstdev)
-            featurearray.iloc[:, featureidx] = \
-                (thiscolumn - thismean) / thisstdev
-        else:
-            print('FLAG')
-            means.append(thismean)
-            thisstdev = 0.1
-            stdevs.append(thisstdev)
-            featurearray.iloc[:, featureidx] = \
-                (thiscolumn - thismean) / thisstdev
-            # We set a small stdev for date.
+        means.append(thismean)
+        stdevs.append(thisstdev)
+        featurearray.iloc[:, featureidx] = \
+            (thiscolumn - thismean) / thisstdev
 
     return featurearray, means, stdevs
 
 class VolumeMeta(object):
-    """A class representing a set of HathiTrust volumes with
+    """A class representing a collection of HathiTrust volumes with
     accompanying metadata. All attributes should be treated as
     read-only.
     """
@@ -120,6 +84,7 @@ class VolumeMeta(object):
         files = [f for f in os.listdir(sourcefolder) if f.endswith(extension)]
         all_ids = [f.rpartition(extension)[0] for f in files]
 
+        # We gather data for all volumes in the directory, but...
         exif, exifnot, exbelow, exabove, sizecap = exclusions
         self.meta = metafilter.get_metadata(
             classpath, all_ids, exif, exifnot, exbelow, exabove
@@ -129,12 +94,19 @@ class VolumeMeta(object):
         )
         self.path = {vid: os.path.join(sourcefolder, filename)
                      for vid, filename in zip(all_ids, files)}
+        self.wordcount = {vid: dict(self._volume_wordcount(vid))
+                          for vid in all_ids}
+        self.totalcount = {vid: sum(self.wordcount[vid].values())
+                           for vid in all_ids}
 
-        self.ordered_ids = [vid for vid in all_ids
-                            if vid in self.label]
-        self.metavector = [self.meta[oid] for oid in self]
-        self.labelvector = [self.label[oid] for oid in self]
-        self.pathvector = [self.path[oid] for oid in self]
+        # ...this determines which volumes are "in" the collection.
+        self.ordered_ids = [vid for vid in all_ids if vid in self.label]
+
+        self.metavector = [self.meta[vid] for vid in self]
+        self.labelvector = [self.label[vid] for vid in self]
+        self.pathvector = [self.path[vid] for vid in self]
+        self.wordcountvector = [self.wordcount[vid] for vid in self]
+        self.totalcountvector = [self.totalcount[vid] for vid in self]
         self._groupcache = {}
 
     def __iter__(self):
@@ -146,20 +118,34 @@ class VolumeMeta(object):
     def __getitem__(self, index):
         return self.ordered_ids[index]
 
-    def infer_date(self, volid, datetype):
-        return infer_date(self.meta[volid], datetype)
-
     def itermeta(self, key):
-        if key is None:
-            return iter(self.metavector)
-        elif key == 'path':
-            return iter(self.pathvector)
-        elif key == 'label':
-            return iter(self.labelvector)
+        """An alias for iterating over a given metadata value in the
+        order defiend by ``self.ordered_ids``. The key names defined
+        here are::
+            'meta': The complete dictionary of metadata for each volume.
+            'path': The path to the wordcount file for each volume.
+            'label': The class label for each volume.
+            'wordcount': The dictionary of wordcounts for each volume.
+            'totalcount': The total number of word tokens in each volume.
+        All word counts here are token counts -- tokens of particular
+        word types in the case of ``wordcount``, and total number of
+        tokens in the case of ``totalcount``.
+
+        Other key names are defined by metadata headers via the
+        ``get_metadata`` function called above.
+        """
+        key = 'meta' if key is None else key
+        if key in ('meta', 'path', 'label', 'wordcount', 'totalcount'):
+            return iter(getattr(self, key + 'vector'))
         else:
             return (self.meta[oid][key] for oid in self)
 
     def zipmeta(self, *keys):
+        """An alias for iterating over tuples of metadata values
+        in the order defined by ``self.ordered_ids``. The volume
+        ID is always included, and if no key is passed it is
+        zipped with the entire ``meta`` dictionary for each volume.
+        """
         if not keys:
             keys = [None]
         iters = [iter(self)] + [self.itermeta(k) for k in keys]
@@ -175,61 +161,47 @@ class VolumeMeta(object):
 
         return self._groupcache[key]
 
-class TrainingData(object):
-    """A class that abstracts away the details of managing feature
-    sets and training data. All attributes should be treated as
-    read-only. Public methods are provided for holding out "test"
-    data (for k-fold cross validation) and for changing feature
-    sets (i.e. via vocablist).
-
-    Public methods: ``next_testdata``, ``set_vocablist``.
-    """
-    def __init__(self, volumes, pastthreshold, futurethreshold,
-                 datetype, numfeatures, kfold_step=None, vocab=None,
-                 usedate=False):
-        """NOTE: Leave ``usedate`` false unless you plan major surgery
-        to reactivate the currently-deprecated option to use "date"
-        as a predictive feature.
-        """
-        self.volumes = volumes
-        self.pastthreshold = pastthreshold
-        self.futurethreshold = futurethreshold
-        self.datetype = datetype
-        self.usedate = usedate
-
-        self.test_start = self.test_end = 0
-        self.kfold_step = kfold_step
-        self.shuffled_ids, self.shuffled_indices = self.shuffled_testdata()
-        self.dont_train = self._dont_train()
-        self.authormatches = self._authormatches()
-
-        self.numfeatures = numfeatures
-        self.wordcounts = self.word_doc_counts()
-        self.voldata = self.volsizes = None
-        self.set_vocablist(vocab)
-
-    def volume_words(self, volid):
-        """Iterate over the word, count pairs in a given volume's file."""
-        volpath = self.volumes.path[volid]
+    def _volume_wordcount(self, volid):
+        """Return a sequence of (word, count) pairs for a given volume."""
+        volpath = self.path[volid]
         with open(volpath, encoding='utf-8') as f:
             rows = (l.strip().split('\t') for l in f)
             pairs = (row for row in rows if len(row) == 2)
             return [(word, int(count)) for word, count in pairs]
 
-    def word_doc_counts(self):
-        wordcounts = Counter()
-        for volid in self.volumes:
-            date = self.volumes.infer_date(volid, self.datetype)
-            if self.pastthreshold <= date <= self.futurethreshold:
-                # Ignore the counts for now; for feature selection, we
-                # just want the number of documents that contain the word.
-                features = (word for word, _count_unused
-                            in self.volume_words(volid)
-                            if len(word) > 0 and word[0].isalpha())
-                wordcounts.update(features)
-        return wordcounts
+    def infer_date(self, volid, datetype):
+        return infer_date(self.meta[volid], datetype)
 
-    def shuffled_testdata(self):
+class TrainingData(object):
+    """A class that abstracts away the details of managing feature
+    sets and training data. All attributes should be treated as
+    read-only. Public methods are provided for holding out "test"
+    data (e.g. for k-fold cross validation) and for changing feature
+    sets (i.e. via vocablist).
+
+    Public methods: ``next_testdata``, ``set_vocablist``.
+    """
+    def __init__(self, volumes, pastthreshold, futurethreshold,
+                 datetype, numfeatures, kfold_step=None, vocab=None):
+        self.volumes = volumes
+        self.pastthreshold = pastthreshold
+        self.futurethreshold = futurethreshold
+        self.datetype = datetype
+
+        self.test_start = self.test_end = 0
+        self.kfold_step = kfold_step
+        self.shuffled_ids, self.shuffled_indices = self._shuffled_data()
+        self.dont_train = self._dont_train()
+        self.authormatches = self._authormatches()
+
+        self.word_doc_counts = self._word_doc_counts()
+        self.numfeatures = numfeatures
+
+        # These will be set in ``set_vocablist``:
+        self.vocablist = self.voldata = self.dataframe = None
+        self.set_vocablist(vocab)
+
+    def _shuffled_data(self):
         """Create a random permutation of all training data that preserves
         the existing balance between the classes. To get random test and
         validation sets for simple validation, and testing, just slice out
@@ -257,23 +229,6 @@ class TrainingData(object):
         id_to_ordered = {volid: i for i, volid in enumerate(self.volumes)}
         shuf_indices = [id_to_ordered[tid] for tid in shuf_ids]
         return shuf_ids, shuf_indices
-
-    def next_testdata(self):
-        if self.kfold_step is None:
-            return False
-
-        self.test_end += self.kfold_step
-        # Because test_start and test_end both start at 0...
-        self.test_start = self.test_end - self.kfold_step
-        self.dont_train = self._dont_train()
-        self.authormatches = self._authormatches()
-
-        # Tell caller whether any test data remains.
-        return bool(self.test_indices)
-
-    @property
-    def test_indices(self):
-        return self.shuffled_indices[self.test_start:self.test_end]
 
     def _dont_train(self):
         dont_train = list()
@@ -304,32 +259,59 @@ class TrainingData(object):
                     for ai in self.volumes.groupmeta('author'))
         return [sorted(set(c)) for c in combined]
 
+    def next_testdata(self):
+        if self.kfold_step is None:
+            return False
+
+        self.test_end += self.kfold_step
+        # Because test_start and test_end both start at 0...
+        self.test_start = self.test_end - self.kfold_step
+        self.dont_train = self._dont_train()
+        self.authormatches = self._authormatches()
+
+        # Tell caller whether any test data remains.
+        return bool(self.test_indices)
+
+    @property
+    def test_indices(self):
+        return self.shuffled_indices[self.test_start:self.test_end]
+
+    def _word_doc_counts(self):
+        """Count the number of times each word type appears in a
+        document in the corpus. Ignore token counts."""
+        word_doc_counts = Counter()
+        for volid, wc in self.volumes.zipmeta('wordcount'):
+            date = self.volumes.infer_date(volid, self.datetype)
+            if self.pastthreshold <= date <= self.futurethreshold:
+                # Ignore the counts for now; for feature selection, we
+                # just want the number of documents that contain the word.
+                features = (word for word in wc
+                            if len(word) > 0 and word[0].isalpha())
+                word_doc_counts.update(features)
+        return word_doc_counts
+
     def set_vocablist(self, vocab=None):
         if vocab is None:
-            self.vocablist = [x[0] for x in
-                              self.wordcounts.most_common(self.numfeatures)]
-        else:
-            self.vocablist = vocab
-        self.voldata, self.volsizes = self._voldata()
+            vocab = [x[0] for x in
+                     self.word_doc_counts.most_common(self.numfeatures)]
+
+        self.vocablist = vocab
+        self.voldata = self._voldata()
+        self.dataframe = pd.DataFrame(self.voldata)
+
+    def _feature_vector(self, wordcounts):
+        features = [wordcounts.get(w, 0) for w in self.vocablist]
+        return np.array(features, dtype=np.float64)
 
     def _voldata(self):
-        vdata = []
-        vsizes = {}
-        for volid in self.volumes:
-            voldict = dict(self.volume_words(volid))
-            totalcount = sum(v for k, v in voldict.items())
-            date = self.volumes.infer_date(volid, self.datetype) - 1700
-            date = 0 if date < 0 else date
-
-            if self.usedate:
-                features = get_features_with_date(voldict, self.vocablist,
-                                                  date, totalcount)
-            else:
-                features = get_features(voldict, self.vocablist)
-                features /= totalcount + 0.001
-            vsizes[volid] = totalcount
-            vdata.append(features)
-        return vdata, vsizes
+        # Goldsotne expressed concern about the (totalcount + 0.001) below,
+        # but I'm leaving it in until I understand why it's there.
+        voldata = []
+        for volid, wc, tc in self.volumes.zipmeta('wordcount', 'totalcount'):
+            features = self._feature_vector(self.volumes.wordcount[volid])
+            features /= (self.volumes.totalcount[volid] + 0.001)
+            voldata.append(features)
+        return voldata
 
     @property
     def classvector(self):
@@ -364,7 +346,6 @@ class _ValidationModel(object):
     def __init__(self, training, penalty, regularization, verbose=False,
                  feature_selector=None):
         self.training = training
-        self.data = pd.DataFrame(training.voldata)
         self.regularization = regularization
         self.penalty = penalty
         self.verbose = verbose
@@ -376,6 +357,10 @@ class _ValidationModel(object):
         self.predictions = self._predict()
         self.allvolumes = self._make_output_rows()
         self.coefficientuples = self._full_coefficients()
+
+    @property
+    def data(self):
+        return self.training.dataframe
 
     def accuracy(self, predictions=None):
         if predictions is None:
@@ -428,7 +413,7 @@ class _ValidationModel(object):
             title = metadata['title']
             canonicity = metadata['canonicity']
             pubname = metadata['pubname']
-            allwords = self.training.volsizes[volid]
+            allwords = self.training.volumes.totalcount[volid]
             logistic = self.predictions.get(volid, 'untested')
             realclass = self.training.volumes.label[volid]
             outrow = [volid, reviewed, obscure, pubdate, birthdate,
@@ -448,8 +433,7 @@ class _ValidationModel(object):
 
         newmodel = LogisticRegression(C=self.regularization,
                                       penalty=self.penalty)
-        trainingset, means, stdevs = normalizearray(trainingset,
-                                                    self.training.usedate)
+        trainingset, means, stdevs = normalizearray(trainingset)
         if self.verbose:
             print('Reporting coefficients for {} features based on {} '
                   'training samples'.format(len(self.training.vocablist),
@@ -474,7 +458,7 @@ class LeaveOneOutModel(_ValidationModel):
         for i, volid in enumerate(self.training.volumes):
             listtoexclude = self.training.authormatches[i]
             arg_set = (self.data, self.training.classvector, listtoexclude, i,
-                       self.training.usedate, self.regularization, self.penalty)
+                       self.regularization, self.penalty)
             model_args.append(arg_set)
 
         # Now do leave-one-out predictions.
@@ -503,17 +487,22 @@ class LeaveOneOutModel(_ValidationModel):
         return predictions
 
 class TestModel(_ValidationModel):
-    def _predict(self):
-        test_indices = self.training.test_indices
-        test_indices = test_indices if test_indices else 0
-        trainingset, yvals, testset = modelingprocess.sliceframe(
+    def _sliceframe(self, test_indices):
+        """A stub function to be overriden in implementations that drop
+        out random samples of training data. (E.g. DropoutModel below.)
+        """
+        return modelingprocess.sliceframe(
             self.data, self.training.classvector,
             self.training.dont_train, test_indices
         )
+
+    def _predict(self):
+        test_indices = self.training.test_indices
+        test_indices = test_indices if test_indices else 0
+        trainingset, yvals, testset = self._sliceframe(test_indices)
         model = LogisticRegression(C=self.regularization,
                                    penalty=self.penalty)
-        trainingset, means, stdevs = normalizearray(trainingset,
-                                                    self.training.usedate)
+        trainingset, means, stdevs = normalizearray(trainingset)
         model.fit(trainingset, yvals)
 
         testset = (testset - means) / stdevs
@@ -524,6 +513,33 @@ class TestModel(_ValidationModel):
             volid = self.training.volumes[i]
             predictions[volid] = pred
         return predictions
+
+class DropoutModel(TestModel):
+    """A "Dropout" model that randomly skips a subset of training data.
+    The idea is that by dropping a random subset and running the algorithm
+    multiple times, you get a more representative sample of the true
+    underlying distribution. If you take this, and then do multiple
+    feature selection grid searches (with different training subsets
+    each time, you might get better features.
+    """
+    def set_subsample_size(self, ssz):
+        """Allow subsampling behavior to be customized without changing
+        the __init__ signature. This avoids complicating inheritance.
+        """
+        self.subsample_size = 0 if ssz < 0 else 1 if ssz > 1 else ssz
+
+    def _sliceframe(self, test_indices):
+        if not hasattr(self, 'subsample_size'):
+            self.subsample_size = 0.75
+
+        trainingset, yvals, testset = modelingprocess.sliceframe(
+            self.data, self.training.classvector,
+            self.training.dont_train, test_indices
+        )
+
+        size = max(1, int(len(trainingset) * self.subsample_size))
+        indices = random.sample(range(len(trainingset)), size)
+        return trainingset.iloc[indices], yvals[indices], testset
 
 class FeatureSelectModel(_ValidationModel):
     def _predict(self):
