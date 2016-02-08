@@ -557,16 +557,20 @@ class FeatureSelectModel(_ValidationModel):
 
 class GridSearch(object):
     def __init__(self, training=None, start_exp=None, end_exp=None,
-                 granularity=None, use_l2=False, fileoutput=False,
-                 verbose=False, ticks=True):
+                 granularity=None, selection_threshold=None, use_l2=False,
+                 fileoutput=False, verbose=False, ticks=True):
         # Stored as a list to enable multiple penalties in the future:
         self.penalties = ['l2'] if use_l2 else ['l1']
         self.regs = self.exp_steps(
             start_exp if start_exp is not None else 1,
             end_exp if end_exp is not None else -2,
-            granularity if granularity is not None else 2
+            granularity if granularity is not None else 4
         )
 
+        self.selection_threshold = \
+            selection_threshold if selection_threshold is not None else 0.0005
+
+        self.poolsize = min(granularity * 4, 16)
         self.out_filename = 'gridpredictions_p-{}_r-{}.csv'.format
         self.coef_filename = 'gridpredictions_p-{}_r-{}.coefs.csv'.format
         self.gridword_filename = 'gridwords_{}.csv'.format
@@ -618,7 +622,7 @@ class GridSearch(object):
                 for p in self.penalties
                 for r in self.regs]
 
-        coefs = self.poolmap(self.search_model, args)
+        coefs = self.poolmap(self.search_model, args, self.poolsize)
 
         all_coefs = {}
         for (_training_unused, pen, reg), coefs in zip(args, coefs):
@@ -626,8 +630,8 @@ class GridSearch(object):
         return self.save_word_vectors(all_coefs)
 
     @staticmethod
-    def poolmap(func, seq):
-        pool = Pool(processes=8)
+    def poolmap(func, seq, poolsize=4):
+        pool = Pool(processes=poolsize)
         result = pool.map(func, seq)
         pool.close()  # Otherwise processes build up and trigger a
         pool.join()   # too-many-files-open error.
@@ -672,7 +676,8 @@ class GridSearch(object):
             header = ', '.join(output_words)
             np.savetxt(self.gridword_filename(p), output_data,
                        header=header, fmt='%8.5f')
-            best = [w for w in output_words if output_data[w][-1] < 0.0005]
+            best = [w for w in output_words
+                    if output_data[w][-1] < self.selection_threshold]
 
             reduced_features.append(best)
         return reduced_features

@@ -1,8 +1,5 @@
-# My goal in this script is to package up the modeling and
-# evaluation processes we actually ran to produce the article,
-# so they can be replicated without a lot of fuss.
-
 import parallel_crossvalidate as pc
+import cheatsheet
 import sys
 
 class Settings(object):
@@ -18,7 +15,8 @@ class Settings(object):
 
     # EXCLUSIONS
     # We're not using reviews from Tait's.
-    # We don't ordinarily include canonical volumes that were not in either sample.
+    # We don't ordinarily include canonical volumes that were not in either
+    # sample.
     excludeif = {'pubname': 'TEM',
                  'recept': 'addcanon'}
 
@@ -44,12 +42,14 @@ class Settings(object):
     numfeatures = 3200
 
     # VALIDATION SETTINGS
-    kfold_step = 6
+    # kfold_step = 4
+    kfold_step = 24
 
     # GRID SEARCH SETTINGS
     start_exp = 1
     end_exp = -2
-    granularity = 2
+    granularity = 3
+    selection_threshold = 0.001
 
     @property
     def exclusions(self):
@@ -135,7 +135,8 @@ def quarters(settings):
 def grid(settings):
     training = model_training_data(settings)
     grid = pc.GridSearch(
-        training, settings.start_exp, settings.end_exp, settings.granularity
+        training, settings.start_exp, settings.end_exp, settings.granularity,
+        settings.selection_threshold
     )
 
     model = pc.FeatureSelectModel(
@@ -144,6 +145,14 @@ def grid(settings):
     )
 
     model_output(model, 'gridfinalmodel.csv')
+
+def gridcheat(settings):
+    training = model_training_data(settings)
+    words = cheatsheet.words
+    training.set_vocablist(words)
+    model = pc.LeaveOneOutModel(training, settings.penalty,
+                                settings.regularization)
+    model_output(model, 'cheatingmodel.csv')
 
 class FloatRange(object):
     def __init__(self, low, high):
@@ -165,6 +174,7 @@ model_dispatch = {
     'canon': canon,
     'halves': halves,
     'grid': grid,
+    'gridcheat': gridcheat,
 }
 
 allowable = set(model_dispatch)
