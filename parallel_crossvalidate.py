@@ -20,7 +20,8 @@ import modelingprocess
 import metafilter
 
 import matplotlib
-matplotlib.use("Agg")  # Get rid of the annoying Python rocket.
+# matplotlib.use("TkAgg")  # Use geenric (portable) plotting backend.
+matplotlib.use("Agg")  # Get rid of the annoying Python rocket but lose plots.
 import matplotlib.pyplot as plt
 
 def infer_date(metadictentry, datetype):
@@ -190,7 +191,7 @@ class TrainingData(object):
 
         self.test_start = self.test_end = 0
         self.kfold_step = kfold_step
-        self.shuffled_ids, self.shuffled_indices = self._shuffled_data()
+        self.shuffled_indices = self._shuffled_data()
         self.dont_train = self._dont_train()
         self.authormatches = self._authormatches()
 
@@ -228,9 +229,14 @@ class TrainingData(object):
 
         id_to_ordered = {volid: i for i, volid in enumerate(self.volumes)}
         shuf_indices = [id_to_ordered[tid] for tid in shuf_ids]
-        return shuf_ids, shuf_indices
 
-    def _dont_train(self):
+        # Just return indices for now; IDs weren't being used.
+        return shuf_indices
+
+    def _dont_train(self, drop_random=0):
+        drop_random = (1 if drop_random > 1 else
+                       0 if drop_random < 0 else
+                       drop_random)
         dont_train = list()
 
         # Here we create a list of volume IDs not to be used for training.
@@ -248,6 +254,8 @@ class TrainingData(object):
             elif revstatus == 'addedbecausecanon':
                 dont_train.append(i)
             elif not self.pastthreshold <= date <= self.futurethreshold:
+                dont_train.append(i)
+            elif drop_random > 0 and random.random() < drop_random:
                 dont_train.append(i)
 
         return dont_train
@@ -271,6 +279,15 @@ class TrainingData(object):
 
         # Tell caller whether any test data remains.
         return bool(self.test_indices)
+
+    def drop_training_subset(self, fraction):
+        """Here, we artificallly reduce the size of the training set by
+        taking a random subset. This can be useful for plotting learning
+        curves and for experimenting with many different combinations
+        of data.
+        """
+        self.dont_train = self._dont_train(fraction)
+        self.authormatches = self._authormatches()
 
     @property
     def test_indices(self):
@@ -305,7 +322,7 @@ class TrainingData(object):
 
     def _voldata(self):
         # Goldsotne expressed concern about the (totalcount + 0.001) below,
-        # but I'm leaving it in until I understand why it's there.
+        # but I'm leaving it in until I understand why it's there. -SE
         voldata = []
         for volid, wc, tc in self.volumes.zipmeta('wordcount', 'totalcount'):
             features = self._feature_vector(self.volumes.wordcount[volid])
@@ -354,6 +371,13 @@ class _ValidationModel(object):
         else:
             self.feature_selector = feature_selector
 
+        self.predict()
+
+    def predict(self, regularization=None, penalty=None):
+        if regularization is not None:
+            self.regularization = regularization
+        if penalty is not None:
+            self.penalty = penalty
         self.predictions = self._predict()
         self.allvolumes = self._make_output_rows()
         self.coefficientuples = self._full_coefficients()
@@ -464,11 +488,11 @@ class LeaveOneOutModel(_ValidationModel):
         # Now do leave-one-out predictions.
         print('Beginning multiprocessing.')
 
-        pool = Pool(processes=8)
+        pool = Pool(processes=4)
         res = pool.map_async(modelingprocess.model_one_volume, model_args)
 
-        # After all files are processed, write metadata, errorlog, and counts of
-        # phrases.
+        # After all files are processed, write metadata, errorlog,
+        # and counts of phrases.
         res.wait()
         resultlist = res.get()
 
@@ -487,19 +511,14 @@ class LeaveOneOutModel(_ValidationModel):
         return predictions
 
 class TestModel(_ValidationModel):
-    def _sliceframe(self, test_indices):
-        """A stub function to be overriden in implementations that drop
-        out random samples of training data. (E.g. DropoutModel below.)
-        """
-        return modelingprocess.sliceframe(
+    def _predict(self):
+        test_indices = self.training.test_indices
+        test_indices = test_indices if test_indices else 0
+        trainingset, yvals, testset = modelingprocess.sliceframe(
             self.data, self.training.classvector,
             self.training.dont_train, test_indices
         )
 
-    def _predict(self):
-        test_indices = self.training.test_indices
-        test_indices = test_indices if test_indices else 0
-        trainingset, yvals, testset = self._sliceframe(test_indices)
         model = LogisticRegression(C=self.regularization,
                                    penalty=self.penalty)
         trainingset, means, stdevs = normalizearray(trainingset)
@@ -513,33 +532,6 @@ class TestModel(_ValidationModel):
             volid = self.training.volumes[i]
             predictions[volid] = pred
         return predictions
-
-class DropoutModel(TestModel):
-    """A "Dropout" model that randomly skips a subset of training data.
-    The idea is that by dropping a random subset and running the algorithm
-    multiple times, you get a more representative sample of the true
-    underlying distribution. If you take this, and then do multiple
-    feature selection grid searches (with different training subsets
-    each time, you might get better features.
-    """
-    def set_subsample_size(self, ssz):
-        """Allow subsampling behavior to be customized without changing
-        the __init__ signature. This avoids complicating inheritance.
-        """
-        self.subsample_size = 0 if ssz < 0 else 1 if ssz > 1 else ssz
-
-    def _sliceframe(self, test_indices):
-        if not hasattr(self, 'subsample_size'):
-            self.subsample_size = 0.75
-
-        trainingset, yvals, testset = modelingprocess.sliceframe(
-            self.data, self.training.classvector,
-            self.training.dont_train, test_indices
-        )
-
-        size = max(1, int(len(trainingset) * self.subsample_size))
-        indices = random.sample(range(len(trainingset)), size)
-        return trainingset.iloc[indices], yvals[indices], testset
 
 class FeatureSelectModel(_ValidationModel):
     def _predict(self):
@@ -597,11 +589,29 @@ class GridSearch(object):
         self.training = training
         self.best_words = None
 
-    def __call__(self, training=None):
+    # It's a little strange to have a callable class automatically save a
+    # file as a side-effect, but it's easy to change this default now.
+    def __call__(self, training=None, save_file=False):
         if training is not None:
             self.training = training
-        self.best_words = self.grid_search()[0]
-        return self.best_words
+        if self.training is None:
+            return None
+
+        all_best = []
+        reps = 10
+        for i in range(reps):
+            self.training.drop_training_subset(0.25)
+            vectors = self.grid_search()
+
+            # The fact that reduced_features returns a list is confusing.
+            # TODO: Make less confusing?
+            all_best.append(self.reduced_features(vectors)[0])
+
+        if save_file:
+            self.save_grid_vectors(vectors)
+
+        counts = Counter(b for best in all_best for b in best)
+        return [w for w, c in counts.most_common(600) if c > 1]
 
     def grid_information(self):
         model_descr = ' {:<15} {}'.format
@@ -629,7 +639,7 @@ class GridSearch(object):
 
     def grid_search(self):
         if self.training is None:
-            return None
+            return [None]  # Because grid search is expected to return a list.
 
         if self.verbose:
             self.grid_information()
@@ -643,10 +653,11 @@ class GridSearch(object):
         all_coefs = {}
         for (_training_unused, pen, reg), coefs in zip(args, coefs):
             all_coefs[pen, reg] = coefs
-        return self.save_word_vectors(all_coefs)
+
+        return self.grid_vectors(all_coefs)
 
     @staticmethod
-    def poolmap(func, seq, poolsize=4):
+    def poolmap(func, seq, poolsize=6):
         pool = Pool(processes=poolsize)
         result = pool.map(func, seq)
         pool.close()  # Otherwise processes build up and trigger a
@@ -664,13 +675,12 @@ class GridSearch(object):
             sys.stdout.write('.')
             sys.stdout.flush()
 
-        # TODO: Implement accuracy file output.
         if self.verbose or self.fileoutput:
             raw = model.accuracy()
             tilt = diachronic_tilt(model.allvolumes, [])
         if self.fileoutput:
             model.write_coefficients(self.out_filename(penalty, reg))
-            # Write accuracy and tilt accuracy out to a file too.
+            # TODO: Write accuracy and tilt accuracy out to a file too.
         if self.verbose:
             display_tilt_accuracy(raw, tilt)
 
@@ -678,35 +688,37 @@ class GridSearch(object):
                         for coef, normed, word in model.coefficientuples}
         return coefficients
 
-    def save_word_vectors(self, all_coefs):
-        # Create word vectors over dimensions of regularization space
-        words = self.training.vocablist
-        vectors = self.grid_vectors(words, all_coefs)
-
-        # It's a little weird to have a callable class save a file as a
-        # side-effect. That should probably change at some point.
+    def reduced_features(self, vectors):
         reduced_features = []
         for p in self.penalties:
             output_data = self.sort_by_covar(vectors[p])
             output_words = output_data.dtype.names
-            header = ', '.join(output_words)
-            np.savetxt(self.gridword_filename(p), output_data,
-                       header=header, fmt='%8.5f')
             best = [w for w in output_words
                     if output_data[w][-1] < self.selection_threshold]
 
             reduced_features.append(best)
         return reduced_features
 
-    def grid_vectors(self, words, all_coefs):
+    def save_grid_vectors(self, vectors):
+        for p in self.penalties:
+            output_data = self.sort_by_covar(vectors[p])
+            output_words = output_data.dtype.names
+            header = ', '.join(output_words)
+            np.savetxt(self.gridword_filename(p), output_data,
+                       header=header, fmt='%8.5f')
+
+    def grid_vectors(self, all_coefs):
         """Create a numpy record array, where `a.l1.fear` refers to the L1 penalty
         coefficients for the word 'fear' across all regularization parameter
         values, represented as percentages of the total L1 penalty.
         """
+        words = self.training.vocablist
         word_dtype = [('model_regularization_param', float)]
         word_dtype.extend([(w, float) for w in words])
-        vectors = np.recarray(len(self.regs), dtype=[('l1', word_dtype),
-                                                     ('l2', word_dtype)])
+        vectors = np.recarray(
+            len(self.regs),
+            dtype=[(p, word_dtype) for p in self.penalties]
+        )
 
         for pen in self.penalties:
             for reg_ix, reg in enumerate(self.regs):

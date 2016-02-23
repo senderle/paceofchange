@@ -42,14 +42,13 @@ class Settings(object):
     numfeatures = 3200
 
     # VALIDATION SETTINGS
-    # kfold_step = 4
-    kfold_step = 1
+    kfold_step = 25
 
     # GRID SEARCH SETTINGS
     start_exp = 1
     end_exp = -2
-    granularity = 3
-    selection_threshold = 0.001
+    granularity = 4
+    selection_threshold = 0
 
     @property
     def exclusions(self):
@@ -65,14 +64,18 @@ def model_training_data(settings):
                                settings.numfeatures, settings.kfold_step)
     return training
 
+def pause():
+    input("Paused. Press Enter to continue.")
+
 def model_output(model, path, verbose=False):
     model.write_output_rows(path)
     model.write_coefficients(path)
     if verbose:
         model.display_coefficients()
 
-    tiltaccuracy = pc.diachronic_tilt(model.allvolumes, [])
+    tiltaccuracy = pc.diachronic_tilt(model.allvolumes, [], True)
     pc.display_tilt_accuracy(model.accuracy(), tiltaccuracy)
+    pause()
 
 def leave_one_out_model(settings):
     training = model_training_data(settings)
