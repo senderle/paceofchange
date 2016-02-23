@@ -834,5 +834,5 @@ if __name__ == '__main__':
     # circular import this way, but because this only happens when the script
     # is run directly, it's OK.
 
-    from replicate import Settings, generic_model
-    generic_model(Settings())
+    from replicate import Settings, leave_one_out_model
+    leave_one_out_model(Settings())
