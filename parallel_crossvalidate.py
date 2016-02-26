@@ -488,7 +488,7 @@ class LeaveOneOutModel(_ValidationModel):
         # Now do leave-one-out predictions.
         print('Beginning multiprocessing.')
 
-        pool = Pool(processes=4)
+        pool = Pool(processes=8)
         res = pool.map_async(modelingprocess.model_one_volume, model_args)
 
         # After all files are processed, write metadata, errorlog,
@@ -537,7 +537,7 @@ class FeatureSelectModel(_ValidationModel):
     def _predict(self):
         predictions = {}
         iterations = 0
-        all_features = set()
+        all_features = Counter()
         while self.training.next_testdata():
             print('Feature selection validation batch {}'.format(iterations))
 
@@ -560,7 +560,8 @@ class FeatureSelectModel(_ValidationModel):
             self.training.set_vocablist()
             iterations += 1
         print()
-        self.training.set_vocablist(list(all_features))
+        self.training.set_vocablist([w for w in all_features
+                                     if all_features[w] > 1])
         return predictions
 
 class GridSearch(object):
@@ -578,7 +579,7 @@ class GridSearch(object):
         self.selection_threshold = \
             selection_threshold if selection_threshold is not None else 0.0005
 
-        self.poolsize = min(granularity * 4, 16)
+        self.poolsize = min(granularity * 4, 8)
         self.out_filename = 'gridpredictions_p-{}_r-{}.csv'.format
         self.coef_filename = 'gridpredictions_p-{}_r-{}.coefs.csv'.format
         self.gridword_filename = 'gridwords_{}.csv'.format
@@ -598,9 +599,9 @@ class GridSearch(object):
             return None
 
         all_best = []
-        reps = 10
+        reps = 32
         for i in range(reps):
-            self.training.drop_training_subset(0.25)
+            self.training.drop_training_subset(0.10)
             vectors = self.grid_search()
 
             # The fact that reduced_features returns a list is confusing.

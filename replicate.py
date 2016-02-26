@@ -42,7 +42,7 @@ class Settings(object):
     numfeatures = 3200
 
     # VALIDATION SETTINGS
-    kfold_step = 25
+    kfold_step = 18
 
     # GRID SEARCH SETTINGS
     start_exp = 1
@@ -75,7 +75,6 @@ def model_output(model, path, verbose=False):
 
     tiltaccuracy = pc.diachronic_tilt(model.allvolumes, [], True)
     pc.display_tilt_accuracy(model.accuracy(), tiltaccuracy)
-    pause()
 
 def leave_one_out_model(settings):
     training = model_training_data(settings)
