@@ -585,10 +585,10 @@ if __name__ == '__main__':
     # classpath = '/Users/tunder/Dropbox/GenreProject/python/reception/fiction/masterficmeta.csv'
     # outputpath = '/Users/tunder/Dropbox/GenreProject/python/reception/fiction/predictions.csv'
 
-    sourcefolder = 'poems/'
+    sourcefolder = 'data/poems/'
     extension = '.poe.tsv'
-    classpath = 'poemeta.csv'
-    outputpath = 'logisticpredictions.csv'
+    classpath = 'data/poemeta.csv'
+    outputpath = 'results/logisticpredictions.csv'
 
     # We can simply exclude volumes from consideration on the basis on any
     # metadata category we want, using the dictionaries defined below.

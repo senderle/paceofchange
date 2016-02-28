@@ -1,6 +1,6 @@
-import parallel_crossvalidate as pc
-import cheatsheet
 import sys
+import parallel_crossvalidate as pc
+from util.featuresets import review_words
 
 class Settings(object):
     # REGULARIZATION
@@ -8,10 +8,10 @@ class Settings(object):
     regularization = 0.00007
 
     # PATHS
-    sourcefolder = 'poems/'
+    sourcefolder = 'data/poems/'
     extension = '.poe.tsv'
-    classpath = 'poemeta.csv'
-    outputpath = 'mainmodelpredictions.csv'
+    classpath = 'data/poemeta.csv'
+    outputpath = 'results/mainmodelpredictions.csv'
 
     # EXCLUSIONS
     # We're not using reviews from Tait's.
@@ -85,45 +85,44 @@ def leave_one_out_model(settings):
     model_output(model, settings.outputpath)
 
 def nations(settings):
-    settings.outputpath = 'nationalpredictions.csv'
+    settings.outputpath = 'results/nationalpredictions.csv'
     settings.pastthreshold = 1700
     settings.positive_class = 'uk'
     settings.category2sorton = 'nation'
     leave_one_out_model(settings)
 
 def gender(settings):
-    settings.outputpath = 'genderpredictions.csv'
+    settings.outputpath = 'results/genderpredictions.csv'
     settings.pastthreshold = 1700
     settings.positive_class = 'f'
     settings.category2sorton = 'gender'
     leave_one_out_model(settings)
 
 def canon(settings):
-    settings.outputpath = 'canonpredictions.csv'
+    settings.outputpath = 'results/canonpredictions.csv'
     del settings.excludeif['recept']
     settings.sizecap = 450
     leave_one_out_model(settings)
 
 def halves(settings):
     # DO THE FIRST HALF.
-    settings.outputpath = 'firsthalfpredictions.csv'
+    settings.outputpath = 'results/firsthalfpredictions.csv'
     settings.excludebelow['firstpub'] = 1800
     settings.excludeabove['firstpub'] = 1875
     settings.sizecap = 300
     leave_one_out_model(settings)
 
     # NOW DO THE SECOND HALF.
-    settings.outputpath = 'secondhalfpredictions.csv'
+    settings.outputpath = 'results/secondhalfpredictions.csv'
     settings.excludebelow['firstpub'] = 1876
     settings.excludeabove['firstpub'] = 1925
     leave_one_out_model(settings)
 
 def quarters(settings):
-    quarteroptions = [('1820-44predictions.csv', 1800, 1844),
-                      ('1845-69predictions.csv', 1845, 1869),
-                      ('1870-94predictions.csv', 1870, 1894),
-                      ('1895-19predictions.csv', 1895, 1925)]
-    # I removed the `quarterresults` line here; it seemed to do nothing. --SE
+    quarteroptions = [('results/1820-44predictions.csv', 1800, 1844),
+                      ('results/1845-69predictions.csv', 1845, 1869),
+                      ('results/1870-94predictions.csv', 1870, 1894),
+                      ('results/1895-19predictions.csv', 1895, 1925)]
 
     for outputpath, pastthreshold, futurethreshold in quarteroptions:
         print(pastthreshold)
@@ -132,7 +131,6 @@ def quarters(settings):
         settings.futurethreshold = futurethreshold
 
         leave_one_out_model(settings)
-        # I removed the `theseresults` lines here; see above. --SE
 
 def grid(settings):
     training = model_training_data(settings)
@@ -150,7 +148,7 @@ def grid(settings):
 
 def gridcheat(settings):
     training = model_training_data(settings)
-    words = cheatsheet.words
+    words = review_words
     training.set_vocablist(words)
     model = pc.LeaveOneOutModel(training, settings.penalty,
                                 settings.regularization)

@@ -16,8 +16,7 @@ import math
 from collections import Counter, defaultdict
 from multiprocessing import Pool
 from models import LogisticRegression
-import modelingprocess
-import metafilter
+from util import metafilter
 
 import matplotlib
 # matplotlib.use("TkAgg")  # Use geenric (portable) plotting backend.
@@ -73,6 +72,33 @@ def normalizearray(featurearray):
             (thiscolumn - thismean) / thisstdev
 
     return featurearray, means, stdevs
+
+def sliceframe(dataframe, yvals, excludedrows, testrow):
+    exrowset = set(excludedrows)
+    newyvals = [y for i, y in enumerate(yvals) if i not in exrowset]
+
+    trainingset = dataframe.drop(dataframe.index[excludedrows])
+
+    newyvals = np.array(newyvals)
+    testset = dataframe.iloc[testrow]
+
+    return trainingset, newyvals, testset
+
+def model_one_volume(model_args):
+    data, classvector, listtoexclude, i, regularization, penalty = model_args
+
+    trainingset, yvals, testset = sliceframe(data, classvector,
+                                             listtoexclude, i)
+    newmodel = LogisticRegression(C=regularization, penalty=penalty)
+    trainingset, means, stdevs = normalizearray(trainingset)
+    newmodel.fit(trainingset, yvals)
+
+    testset = (testset - means) / stdevs
+    prediction = newmodel.predict_proba(testset.reshape(1, -1))[0][1]
+    if i % 50 == 0:
+        print(i)
+    # print(str(i) + "  -  " + str(len(listtoexclude)))
+    return prediction
 
 class VolumeMeta(object):
     """A class representing a collection of HathiTrust volumes with
@@ -450,7 +476,7 @@ class _ValidationModel(object):
     def _full_coefficients(self):
         test_indices = self.training.test_indices
         test_indices = test_indices if test_indices else 0
-        trainingset, yvals, testset = modelingprocess.sliceframe(
+        trainingset, yvals, testset = sliceframe(
             self.data, self.training.classvector,
             self.training.dont_train, test_indices
         )
@@ -489,7 +515,7 @@ class LeaveOneOutModel(_ValidationModel):
         print('Beginning multiprocessing.')
 
         pool = Pool(processes=8)
-        res = pool.map_async(modelingprocess.model_one_volume, model_args)
+        res = pool.map_async(model_one_volume, model_args)
 
         # After all files are processed, write metadata, errorlog,
         # and counts of phrases.
@@ -514,7 +540,7 @@ class TestModel(_ValidationModel):
     def _predict(self):
         test_indices = self.training.test_indices
         test_indices = test_indices if test_indices else 0
-        trainingset, yvals, testset = modelingprocess.sliceframe(
+        trainingset, yvals, testset = sliceframe(
             self.data, self.training.classvector,
             self.training.dont_train, test_indices
         )
