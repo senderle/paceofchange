@@ -49,6 +49,8 @@ class Settings(object):
     end_exp = -2
     granularity = 4
     selection_threshold = 0
+    dropout_trials = 0
+    dropout_fraction = 0
 
     @property
     def exclusions(self):
@@ -136,7 +138,8 @@ def grid(settings):
     training = model_training_data(settings)
     grid = pc.GridSearch(
         training, settings.start_exp, settings.end_exp, settings.granularity,
-        settings.selection_threshold
+        settings.selection_threshold, settings.dropout_trials,
+        settings.dropout_fraction
     )
 
     model = pc.FeatureSelectModel(

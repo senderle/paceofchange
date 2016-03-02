@@ -100,6 +100,12 @@ def model_one_volume(model_args):
     # print(str(i) + "  -  " + str(len(listtoexclude)))
     return prediction
 
+def not_pred(pred, value, default=None):
+    return value if not pred(value) else default
+
+def not_none(value, default=None):
+    return not_pred(value, lambda v: v is None, default)
+
 class VolumeMeta(object):
     """A class representing a collection of HathiTrust volumes with
     accompanying metadata. All attributes should be treated as
@@ -392,18 +398,12 @@ class _ValidationModel(object):
         self.regularization = regularization
         self.penalty = penalty
         self.verbose = verbose
-        if feature_selector is None:
-            self.feature_selector = lambda x: None
-        else:
-            self.feature_selector = feature_selector
-
+        self.feature_selector = feature_selector or (lambda x: None)
         self.predict()
 
     def predict(self, regularization=None, penalty=None):
-        if regularization is not None:
-            self.regularization = regularization
-        if penalty is not None:
-            self.penalty = penalty
+        self.regularization = not_none(regularization, self.regularization)
+        self.penalty = not_none(penalty, self.penalty)
         self.predictions = self._predict()
         self.allvolumes = self._make_output_rows()
         self.coefficientuples = self._full_coefficients()
@@ -413,8 +413,7 @@ class _ValidationModel(object):
         return self.training.dataframe
 
     def accuracy(self, predictions=None):
-        if predictions is None:
-            predictions = self.predictions
+        predictions = predictions or self.predictions
         truepositives = truenegatives = 0  # falsepositives = falsenegatives = 0
         n_predictions = 0
         for volid in self.training.volumes:
@@ -474,8 +473,7 @@ class _ValidationModel(object):
         return allvolumes
 
     def _full_coefficients(self):
-        test_indices = self.training.test_indices
-        test_indices = test_indices if test_indices else 0
+        test_indices = self.training.test_indices or 0
         trainingset, yvals, testset = sliceframe(
             self.data, self.training.classvector,
             self.training.dont_train, test_indices
@@ -538,8 +536,7 @@ class LeaveOneOutModel(_ValidationModel):
 
 class TestModel(_ValidationModel):
     def _predict(self):
-        test_indices = self.training.test_indices
-        test_indices = test_indices if test_indices else 0
+        test_indices = self.training.test_indices or 0
         trainingset, yvals, testset = sliceframe(
             self.data, self.training.classvector,
             self.training.dont_train, test_indices
@@ -591,19 +588,25 @@ class FeatureSelectModel(_ValidationModel):
         return predictions
 
 class GridSearch(object):
-    def __init__(self, training=None, start_exp=None, end_exp=None,
-                 granularity=None, selection_threshold=None, use_l2=False,
+    def __init__(self, training=None,
+                 start_exp=1, end_exp=-2, granularity=4,
+                 selection_threshold=0.0005,
+                 dropout_trials=0, dropout_fraction=None,
+                 use_l2=False,
                  fileoutput=False, verbose=False, ticks=True):
         # Stored as a list to enable multiple penalties in the future:
         self.penalties = ['l2'] if use_l2 else ['l1']
         self.regs = self.exp_steps(
-            start_exp if start_exp is not None else 1,
-            end_exp if end_exp is not None else -2,
-            granularity if granularity is not None else 4
+            start_exp or 1,
+            end_exp or -2,
+            granularity or 4
         )
 
-        self.selection_threshold = \
-            selection_threshold if selection_threshold is not None else 0.0005
+        dropout_fraction = not_none(dropout_fraction, 0.10)
+        dropout_fraction = min(max(dropout_fraction, 0), 1)
+        self.droput_fraction = dropout_fraction if dropout_trials > 0 else 0
+        self.trials = dropout_trials if dropout_trials > 0 else 1
+        self.selection_threshold = selection_threshold
 
         self.poolsize = min(granularity * 4, 8)
         self.out_filename = 'gridpredictions_p-{}_r-{}.csv'.format
@@ -619,15 +622,14 @@ class GridSearch(object):
     # It's a little strange to have a callable class automatically save a
     # file as a side-effect, but it's easy to change this default now.
     def __call__(self, training=None, save_file=False):
-        if training is not None:
-            self.training = training
+        self.training = training or self.training
         if self.training is None:
             return None
 
         all_best = []
-        reps = 32
-        for i in range(reps):
-            self.training.drop_training_subset(0.10)
+        for i in range(self.trials):
+            if self.dropout_fraction:
+                self.trianing.drop_training_subset(self.dropout_fraction)
             vectors = self.grid_search()
 
             # The fact that reduced_features returns a list is confusing.
