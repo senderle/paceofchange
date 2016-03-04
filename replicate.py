@@ -1,11 +1,12 @@
 import sys
 import parallel_crossvalidate as pc
 from util.featuresets import review_words
+from pprint import pprint
 
 class Settings(object):
     # REGULARIZATION
     penalty = 'l2'
-    regularization = 0.00007
+    regularization = 0.0007  # I reduced this by an order of magnitude. -SE
 
     # PATHS
     sourcefolder = 'data/poems/'
@@ -42,15 +43,16 @@ class Settings(object):
     numfeatures = 3200
 
     # VALIDATION SETTINGS
-    kfold_step = 18
+    kfold_step = 1
 
     # GRID SEARCH SETTINGS
     start_exp = 1
     end_exp = -2
     granularity = 4
-    selection_threshold = 0
-    dropout_trials = 0
+    selection_threshold = 0.001
+    dropout_trials = 8
     dropout_fraction = 0
+    dropout_floor = 1
 
     @property
     def exclusions(self):
@@ -139,7 +141,7 @@ def grid(settings):
     grid = pc.GridSearch(
         training, settings.start_exp, settings.end_exp, settings.granularity,
         settings.selection_threshold, settings.dropout_trials,
-        settings.dropout_fraction
+        settings.dropout_floor, settings.dropout_fraction
     )
 
     model = pc.FeatureSelectModel(
@@ -261,6 +263,7 @@ def run_model(model_dispatch):
     settings.penalty = penalty
     settings.regularization = regularization
     model_dispatch[command](settings)
+    pprint(settings.__dict__)
 
 if __name__ == '__main__':
     run_model(model_dispatch)

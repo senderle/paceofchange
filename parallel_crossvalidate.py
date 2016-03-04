@@ -104,7 +104,7 @@ def not_pred(pred, value, default=None):
     return value if not pred(value) else default
 
 def not_none(value, default=None):
-    return not_pred(value, lambda v: v is None, default)
+    return not_pred(lambda v: v is None, value, default)
 
 class VolumeMeta(object):
     """A class representing a collection of HathiTrust volumes with
@@ -591,7 +591,7 @@ class GridSearch(object):
     def __init__(self, training=None,
                  start_exp=1, end_exp=-2, granularity=4,
                  selection_threshold=0.0005,
-                 dropout_trials=0, dropout_fraction=None,
+                 dropout_trials=0, dropout_fraction=None, dropout_floor=None,
                  use_l2=False,
                  fileoutput=False, verbose=False, ticks=True):
         # Stored as a list to enable multiple penalties in the future:
@@ -602,9 +602,14 @@ class GridSearch(object):
             granularity or 4
         )
 
-        dropout_fraction = not_none(dropout_fraction, 0.10)
-        dropout_fraction = min(max(dropout_fraction, 0), 1)
-        self.droput_fraction = dropout_fraction if dropout_trials > 0 else 0
+        if dropout_trials > 0:
+            dropout_fraction = not_none(dropout_fraction, 0.10)
+            self.dropout_fraction = min(max(dropout_fraction, 0), 1)
+            self.dropout_floor = not_none(dropout_floor, 1)
+        else:
+            self.droput_fraction = 0
+            self.dropout_floor = 0
+
         self.trials = dropout_trials if dropout_trials > 0 else 1
         self.selection_threshold = selection_threshold
 
@@ -640,7 +645,7 @@ class GridSearch(object):
             self.save_grid_vectors(vectors)
 
         counts = Counter(b for best in all_best for b in best)
-        return [w for w, c in counts.most_common(600) if c > 1]
+        return [w for w, c in counts.most_common() if c > self.dropout_floor]
 
     def grid_information(self):
         model_descr = ' {:<15} {}'.format
