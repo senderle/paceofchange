@@ -54,6 +54,9 @@ class Settings(object):
     dropout_fraction = 0
     dropout_floor = 1
 
+    # MULTIPROCESSING SETTINGS
+    poolmax = 8
+
     @property
     def exclusions(self):
         return (self.excludeif, self.excludeifnot, self.excludebelow,
@@ -83,7 +86,8 @@ def model_output(model, path, verbose=False):
 def leave_one_out_model(settings):
     training = model_training_data(settings)
     model = pc.LeaveOneOutModel(
-        training, settings.penalty, settings.regularization
+        training, settings.penalty, settings.regularization,
+        poolsize=settings.poolmax
     )
 
     model_output(model, settings.outputpath)
@@ -141,7 +145,8 @@ def grid(settings):
     grid = pc.GridSearch(
         training, settings.start_exp, settings.end_exp, settings.granularity,
         settings.selection_threshold, settings.dropout_trials,
-        settings.dropout_floor, settings.dropout_fraction
+        settings.dropout_floor, settings.dropout_fraction,
+        poolmax=settings.poolmax
     )
 
     model = pc.FeatureSelectModel(
@@ -156,7 +161,8 @@ def gridcheat(settings):
     words = review_words
     training.set_vocablist(words)
     model = pc.LeaveOneOutModel(training, settings.penalty,
-                                settings.regularization)
+                                settings.regularization,
+                                poolsize=settings.poolmax)
     model_output(model, 'cheatingmodel.csv')
 
 class FloatRange(object):

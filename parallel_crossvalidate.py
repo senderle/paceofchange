@@ -393,12 +393,13 @@ def read_word_coefs(words, filename):
 
 class _ValidationModel(object):
     def __init__(self, training, penalty, regularization, verbose=False,
-                 feature_selector=None):
+                 feature_selector=None, poolsize=8):
         self.training = training
         self.regularization = regularization
         self.penalty = penalty
         self.verbose = verbose
         self.feature_selector = feature_selector or (lambda x: None)
+        self.poolsize = poolsize
         self.predict()
 
     def predict(self, regularization=None, penalty=None):
@@ -512,7 +513,7 @@ class LeaveOneOutModel(_ValidationModel):
         # Now do leave-one-out predictions.
         print('Beginning multiprocessing.')
 
-        pool = Pool(processes=8)
+        pool = Pool(processes=self.poolsize)
         res = pool.map_async(model_one_volume, model_args)
 
         # After all files are processed, write metadata, errorlog,
@@ -593,7 +594,7 @@ class GridSearch(object):
                  selection_threshold=0.0005,
                  dropout_trials=0, dropout_fraction=None, dropout_floor=None,
                  use_l2=False,
-                 fileoutput=False, verbose=False, ticks=True):
+                 fileoutput=False, verbose=False, ticks=True, poolmax=8):
         # Stored as a list to enable multiple penalties in the future:
         self.penalties = ['l2'] if use_l2 else ['l1']
         self.regs = self.exp_steps(
@@ -613,7 +614,7 @@ class GridSearch(object):
         self.trials = dropout_trials if dropout_trials > 0 else 1
         self.selection_threshold = selection_threshold
 
-        self.poolsize = min(granularity * 4, 8)
+        self.poolsize = min(granularity * 4, poolmax)
         self.out_filename = 'gridpredictions_p-{}_r-{}.csv'.format
         self.coef_filename = 'gridpredictions_p-{}_r-{}.coefs.csv'.format
         self.gridword_filename = 'gridwords_{}.csv'.format
@@ -691,9 +692,9 @@ class GridSearch(object):
         return self.grid_vectors(all_coefs)
 
     @staticmethod
-    def poolmap(func, seq, poolsize=6):
+    def poolmap(func, seq, poolsize):
         pool = Pool(processes=poolsize)
-        result = pool.map(func, seq)
+        result = pool.map(func, seq, chunksize=1)
         pool.close()  # Otherwise processes build up and trigger a
         pool.join()   # too-many-files-open error.
         return result
