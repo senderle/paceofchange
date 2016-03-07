@@ -223,7 +223,7 @@ def regularization_instructions():
     print("but test error may go up.)")
     print()
     print("You may select a value between 0.0 and 10.0. Default is")
-    print("0.000007")
+    print("0.00007")
     print()
 
 def get_args():
