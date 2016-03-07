@@ -4,58 +4,60 @@ from util.featuresets import review_words
 from pprint import pprint
 
 class Settings(object):
-    # REGULARIZATION
-    penalty = 'l2'
-    regularization = 0.0007  # I reduced this by an order of magnitude. -SE
+    def __init__(self, **args):
+        # REGULARIZATION
+        self.penalty = args.get('penalty', 'l2')
+        self.regularization = args.get('regularization', 0.00007)
 
-    # PATHS
-    sourcefolder = 'data/poems/'
-    extension = '.poe.tsv'
-    classpath = 'data/poemeta.csv'
-    outputpath = 'results/mainmodelpredictions.csv'
+        # PATHS
+        self.sourcefolder = args.get('sourcefolder', 'data/poems/')
+        self.extension = args.get('extension', '.poe.tsv')
+        self.classpath = args.get('classpath', 'data/poemeta.csv')
+        self.outputpath = args.get('outputpath',
+                                   'results/mainmodelpredictions.csv')
 
-    # EXCLUSIONS
-    # We're not using reviews from Tait's.
-    # We don't ordinarily include canonical volumes that were not in either
-    # sample.
-    excludeif = {'pubname': 'TEM',
-                 'recept': 'addcanon'}
+        # EXCLUSIONS
+        # We're not using reviews from Tait's.
+        # We don't ordinarily include canonical volumes that were not in either
+        # sample.
+        self.excludeif = args.get('excludeif',
+                                  {'pubname': 'TEM', 'recept': 'addcanon'})
 
-    excludeifnot = {}
-    excludebelow = {'firstpub': 1700}
-    excludeabove = {'firstpub': 1950}
-    sizecap = 360
+        self.excludeifnot = args.get('excludeifnot', {})
+        self.excludebelow = args.get('excludebelow', {'firstpub': 1700})
+        self.excludeabove = args.get('excludeabove', {'firstpub': 1950})
+        self.sizecap = args.get('sizecap', 360)
 
-    # THRESHOLDS
-    # For more historically-interesting kinds of questions, we limit the part
-    # of the dataset that gets TRAINED on, while permitting the whole dataset to
-    # be PREDICTED. (Note that we always exclude authors from their own training
-    # set; this is in addition to that.) The variables futurethreshold and
-    # pastthreshold set the chronological limits of the training set, inclusive
-    # of the threshold itself.
-    futurethreshold = 1925
-    pastthreshold = 1800
+        # THRESHOLDS
+        # For more historically-interesting kinds of questions, we limit the
+        # part of the dataset that gets TRAINED on, while permitting the whole
+        # dataset to be PREDICTED. (Note that we always exclude authors from
+        # their own training set; this is in addition to that.) The variables
+        # futurethreshold and pastthreshold set the chronological limits of
+        # the training set, inclusive of the threshold itself.
+        self.futurethreshold = args.get('futurethreshold', 1925)
+        self.pastthreshold = args.get('pastthreshold', 1800)
 
-    # CLASSIFY CONDITIONS
-    positive_class = 'rev'
-    category2sorton = 'reviewed'
-    datetype = 'firstpub'
-    numfeatures = 3200
+        # CLASSIFY CONDITIONS
+        self.positive_class = args.get('positive_class', 'rev')
+        self.category2sorton = args.get('category2sorton', 'reviewed')
+        self.datetype = args.get('datetype', 'firstpub')
+        self.numfeatures = args.get('numfeatures', 3200)
 
-    # VALIDATION SETTINGS
-    kfold_step = 1
+        # VALIDATION SETTINGS
+        self.kfold_step = args.get('kfold_step', 360)
 
-    # GRID SEARCH SETTINGS
-    start_exp = 1
-    end_exp = -2
-    granularity = 4
-    selection_threshold = 0.001
-    dropout_trials = 8
-    dropout_fraction = 0
-    dropout_floor = 1
+        # GRID SEARCH SETTINGS
+        self.start_exp = args.get('start_exp', 1)
+        self.end_exp = args.get('end_exp', -2)
+        self.granularity = args.get('granularity', 4)
+        self.selection_threshold = args.get('selection_threshold', 0.001)
+        self.dropout_trials = args.get('dropout_trials', 0)
+        self.dropout_fraction = args.get('dropout_fraction', 0)
+        self.dropout_floor = args.get('dropout_floor', 1)
 
-    # MULTIPROCESSING SETTINGS
-    poolmax = 8
+        # MULTIPROCESSING SETTINGS
+        self.poolmax = args.get('poolmax', 1)
 
     @property
     def exclusions(self):
@@ -269,7 +271,7 @@ def run_model(model_dispatch):
     settings.penalty = penalty
     settings.regularization = regularization
     model_dispatch[command](settings)
-    pprint(settings.__dict__)
+    pprint(vars(settings))
 
 if __name__ == '__main__':
     run_model(model_dispatch)

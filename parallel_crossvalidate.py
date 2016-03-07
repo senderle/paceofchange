@@ -608,7 +608,7 @@ class GridSearch(object):
             self.dropout_fraction = min(max(dropout_fraction, 0), 1)
             self.dropout_floor = not_none(dropout_floor, 1)
         else:
-            self.droput_fraction = 0
+            self.dropout_fraction = 0
             self.dropout_floor = 0
 
         self.trials = dropout_trials if dropout_trials > 0 else 1
