@@ -45,19 +45,19 @@ class Settings(object):
         self.numfeatures = args.get('numfeatures', 3200)
 
         # VALIDATION SETTINGS
-        self.kfold_step = args.get('kfold_step', 360)
+        self.kfold_step = args.get('kfold_step', 1)
 
         # GRID SEARCH SETTINGS
         self.start_exp = args.get('start_exp', 1)
         self.end_exp = args.get('end_exp', -2)
         self.granularity = args.get('granularity', 4)
-        self.selection_threshold = args.get('selection_threshold', 0.001)
-        self.dropout_trials = args.get('dropout_trials', 0)
-        self.dropout_fraction = args.get('dropout_fraction', 0)
+        self.selection_threshold = args.get('selection_threshold', 0.005)
+        self.dropout_trials = args.get('dropout_trials', 2)
+        self.dropout_fraction = args.get('dropout_fraction', 0.10)
         self.dropout_floor = args.get('dropout_floor', 1)
 
         # MULTIPROCESSING SETTINGS
-        self.poolmax = args.get('poolmax', 1)
+        self.poolmax = args.get('poolmax', 8)
 
     @property
     def exclusions(self):
@@ -147,7 +147,7 @@ def grid(settings):
     grid = pc.GridSearch(
         training, settings.start_exp, settings.end_exp, settings.granularity,
         settings.selection_threshold, settings.dropout_trials,
-        settings.dropout_floor, settings.dropout_fraction,
+        settings.dropout_fraction, settings.dropout_floor,
         poolmax=settings.poolmax
     )
 
@@ -271,6 +271,8 @@ def run_model(model_dispatch):
     settings.penalty = penalty
     settings.regularization = regularization
     model_dispatch[command](settings)
+    print
+    print("Settings:")
     pprint(vars(settings))
 
 if __name__ == '__main__':

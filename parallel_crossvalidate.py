@@ -287,7 +287,7 @@ class TrainingData(object):
                 dont_train.append(i)
             elif not self.pastthreshold <= date <= self.futurethreshold:
                 dont_train.append(i)
-            elif drop_random > 0 and random.random() < drop_random:
+            elif random.random() < drop_random:
                 dont_train.append(i)
 
         return dont_train
@@ -542,7 +542,6 @@ class TestModel(_ValidationModel):
             self.data, self.training.classvector,
             self.training.dont_train, test_indices
         )
-
         model = LogisticRegression(C=self.regularization,
                                    penalty=self.penalty)
         trainingset, means, stdevs = normalizearray(trainingset)
@@ -635,7 +634,7 @@ class GridSearch(object):
         all_best = []
         for i in range(self.trials):
             if self.dropout_fraction:
-                self.trianing.drop_training_subset(self.dropout_fraction)
+                self.training.drop_training_subset(self.dropout_fraction)
             vectors = self.grid_search()
 
             # The fact that reduced_features returns a list is confusing.
