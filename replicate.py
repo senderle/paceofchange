@@ -51,8 +51,8 @@ class Settings(object):
         self.start_exp = args.get('start_exp', 1)
         self.end_exp = args.get('end_exp', -2)
         self.granularity = args.get('granularity', 4)
-        self.selection_threshold = args.get('selection_threshold', 0.005)
-        self.dropout_trials = args.get('dropout_trials', 2)
+        self.selection_threshold = args.get('selection_threshold', 0.0005)
+        self.dropout_trials = args.get('dropout_trials', 4)
         self.dropout_fraction = args.get('dropout_fraction', 0.10)
         self.dropout_floor = args.get('dropout_floor', 1)
 
