@@ -48,13 +48,14 @@ class Settings(object):
         self.kfold_step = args.get('kfold_step', 1)
 
         # GRID SEARCH SETTINGS
-        self.start_exp = args.get('start_exp', 1)
-        self.end_exp = args.get('end_exp', -2)
-        self.granularity = args.get('granularity', 4)
-        self.selection_threshold = args.get('selection_threshold', 0.0005)
+        self.grid_start_exp = args.get('grid_start_exp', 1)
+        self.grid_end_exp = args.get('grid_end_exp', -2)
+        self.grid_granularity = args.get('grid_granularity', 2)
+        self.dropout_selection_threshold = \
+            args.get('dropout_selection_threshold', 0)
         self.dropout_trials = args.get('dropout_trials', 4)
         self.dropout_fraction = args.get('dropout_fraction', 0.10)
-        self.dropout_floor = args.get('dropout_floor', 1)
+        self.dropout_floor = args.get('dropout_floor', 2)
 
         # MULTIPROCESSING SETTINGS
         self.poolmax = args.get('poolmax', 8)
@@ -145,10 +146,10 @@ def quarters(settings):
 def grid(settings):
     training = model_training_data(settings)
     grid = pc.GridSearch(
-        training, settings.start_exp, settings.end_exp, settings.granularity,
-        settings.selection_threshold, settings.dropout_trials,
-        settings.dropout_fraction, settings.dropout_floor,
-        poolmax=settings.poolmax
+        training, settings.grid_start_exp, settings.grid_end_exp,
+        settings.grid_granularity, settings.dropout_selection_threshold,
+        settings.dropout_trials, settings.dropout_fraction,
+        settings.dropout_floor, poolmax=settings.poolmax
     )
 
     model = pc.FeatureSelectModel(
