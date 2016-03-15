@@ -50,12 +50,11 @@ class Settings(object):
         # GRID SEARCH SETTINGS
         self.grid_start_exp = args.get('grid_start_exp', 1)
         self.grid_end_exp = args.get('grid_end_exp', -2)
-        self.grid_granularity = args.get('grid_granularity', 2)
+        self.grid_granularity = args.get('grid_granularity', 4)
         self.dropout_selection_threshold = \
             args.get('dropout_selection_threshold', 0)
-        self.dropout_trials = args.get('dropout_trials', 4)
-        self.dropout_fraction = args.get('dropout_fraction', 0.10)
-        self.dropout_floor = args.get('dropout_floor', 2)
+        self.dropout_trials = args.get('dropout_trials', 3)
+        self.dropout_fraction = args.get('dropout_fraction', 0.50)
 
         # MULTIPROCESSING SETTINGS
         self.poolmax = args.get('poolmax', 8)
@@ -149,7 +148,7 @@ def grid(settings):
         training, settings.grid_start_exp, settings.grid_end_exp,
         settings.grid_granularity, settings.dropout_selection_threshold,
         settings.dropout_trials, settings.dropout_fraction,
-        settings.dropout_floor, poolmax=settings.poolmax
+        poolmax=settings.poolmax
     )
 
     model = pc.FeatureSelectModel(
@@ -262,7 +261,7 @@ def get_clui_input(instructions, allow, default, prompt):
     print()
     return result
 
-def run_model(model_dispatch):
+def interactive_model():
     if len(sys.argv) > 1:
         command, penalty, regularization = get_args()
     else:
@@ -277,4 +276,4 @@ def run_model(model_dispatch):
     pprint(vars(settings))
 
 if __name__ == '__main__':
-    run_model(model_dispatch)
+    interactive_model()

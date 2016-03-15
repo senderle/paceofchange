@@ -591,11 +591,10 @@ class GridSearch(object):
     def __init__(self, training=None,
                  start_exp=1, end_exp=-2, granularity=4,
                  selection_threshold=0.0005,
-                 dropout_trials=0, dropout_fraction=None, dropout_floor=None,
+                 dropout_trials=0, dropout_fraction=None,
                  use_l2=False,
                  fileoutput=False, verbose=False, ticks=True, poolmax=8):
-        # Stored as a list to enable multiple penalties in the future:
-        self.penalties = ['l2'] if use_l2 else ['l1']
+        self.penalty = 'l2' if use_l2 else 'l1'
         self.regs = self.exp_steps(
             start_exp or 1,
             end_exp or -2,
@@ -605,10 +604,8 @@ class GridSearch(object):
         if dropout_trials > 0:
             dropout_fraction = not_none(dropout_fraction, 0.10)
             self.dropout_fraction = min(max(dropout_fraction, 0), 1)
-            self.dropout_floor = not_none(dropout_floor, 1)
         else:
             self.dropout_fraction = 0
-            self.dropout_floor = 0
 
         self.trials = dropout_trials if dropout_trials > 0 else 1
         self.selection_threshold = selection_threshold
@@ -616,7 +613,7 @@ class GridSearch(object):
         self.poolsize = min(granularity * 4, poolmax)
         self.out_filename = 'gridpredictions_p-{}_r-{}.csv'.format
         self.coef_filename = 'gridpredictions_p-{}_r-{}.coefs.csv'.format
-        self.gridword_filename = 'gridwords_{}.csv'.format
+        self.gridword_filename = 'gridwords_{}_{}.csv'.format
         self.verbose = verbose
         self.ticks = ticks
         self.fileoutput = fileoutput
@@ -631,30 +628,31 @@ class GridSearch(object):
         if self.training is None:
             return None
 
-        all_best = []
+        feature_covars = {}
         for i in range(self.trials):
             if self.dropout_fraction:
                 self.training.drop_training_subset(self.dropout_fraction)
             vectors = self.grid_search()
-
-            # The fact that reduced_features returns a list is confusing.
-            # TODO: Make less confusing?
-            all_best.append(self.reduced_features(vectors)[0])
+            output_data = self.sort_by_covar(vectors[self.penalty])
+            for feature in output_data.dtype.names:
+                covar = feature_covars.get(feature, 0)
+                covar += output_data[feature][-1] / self.trials
+                feature_covars[feature] = covar
 
         if save_file:
             self.save_grid_vectors(vectors)
 
-        counts = Counter(b for best in all_best for b in best)
-        return [w for w, c in counts.most_common() if c > self.dropout_floor]
+        features = sorted(feature_covars, key=feature_covars.get)
+        return [f for f in features
+                if feature_covars[f] < self.selection_threshold]
 
     def grid_information(self):
         model_descr = ' {:<15} {}'.format
         print("Generating models for the following penalty-parameter pairs:")
         print()
         print("Penalty Type    Regularization Parameter")
-        print("\n".join(model_descr(p, r)
-                        for p in self.penalties for r in
-                        self.regs))
+        print("\n".join(model_descr(self.penalty, r)
+                        for r in self.regs))
         print()
 
     def exp_steps(self, start_exp, end_exp, granularity):
@@ -678,8 +676,7 @@ class GridSearch(object):
         if self.verbose:
             self.grid_information()
 
-        args = [(self.training, p, r)
-                for p in self.penalties
+        args = [(self.training, self.penalty, r)
                 for r in self.regs]
 
         coefs = self.poolmap(self.search_model, args, self.poolsize)
@@ -724,22 +721,20 @@ class GridSearch(object):
 
     def reduced_features(self, vectors):
         reduced_features = []
-        for p in self.penalties:
-            output_data = self.sort_by_covar(vectors[p])
-            output_words = output_data.dtype.names
-            best = [w for w in output_words
-                    if output_data[w][-1] < self.selection_threshold]
+        output_data = self.sort_by_covar(vectors[self.penalty])
+        output_words = output_data.dtype.names
+        best = [w for w in output_words
+                if output_data[w][-1] < self.selection_threshold]
 
-            reduced_features.append(best)
+        reduced_features.append(best)
         return reduced_features
 
-    def save_grid_vectors(self, vectors):
-        for p in self.penalties:
-            output_data = self.sort_by_covar(vectors[p])
-            output_words = output_data.dtype.names
-            header = ', '.join(output_words)
-            np.savetxt(self.gridword_filename(p), output_data,
-                       header=header, fmt='%8.5f')
+    def save_grid_vectors(self, vectors, trial):
+        output_data = self.sort_by_covar(vectors[self.penalty])
+        output_words = output_data.dtype.names
+        header = ', '.join(output_words)
+        np.savetxt(self.gridword_filename(self.penalty, trial), output_data,
+                   header=header, fmt='%8.5f')
 
     def grid_vectors(self, all_coefs):
         """Create a numpy record array, where `a.l1.fear` refers to the L1 penalty
@@ -751,29 +746,27 @@ class GridSearch(object):
         word_dtype.extend([(w, float) for w in words])
         vectors = np.recarray(
             len(self.regs),
-            dtype=[(p, word_dtype) for p in self.penalties]
+            dtype=[(self.penalty, word_dtype)]
         )
 
-        for pen in self.penalties:
-            for reg_ix, reg in enumerate(self.regs):
-                vectors[pen]['model_regularization_param'][reg_ix] = reg
-                word_coefs = all_coefs[pen, reg]
-                for word in words:
-                    coef, _normed_unused = word_coefs.get(word, (0, 0))
-                    coef = float(coef)
-                    coef = 0 if math.isnan(coef) or math.isinf(coef) else coef
-                    vectors[pen][word][reg_ix] = coef
+        for reg_ix, reg in enumerate(self.regs):
+            vectors[self.penalty]['model_regularization_param'][reg_ix] = reg
+            word_coefs = all_coefs[self.penalty, reg]
+            for word in words:
+                coef, _normed_unused = word_coefs.get(word, (0, 0))
+                coef = float(coef)
+                coef = 0 if math.isnan(coef) or math.isinf(coef) else coef
+                vectors[self.penalty][word][reg_ix] = coef
 
         # Calculate the effective L1 penality for each regularization value
         # and normalize, such that each weight is represented as a percentage
         # of total model penalty. The L2 penalty is convex, so this approach
         # can be used for it too. It will distort proportions,
         # but will not affect the order of the results.
-        for pen in self.penalties:
-            pen_sum = np.sum(np.abs(vectors[pen][word]) for word in words)
-            pen_sum[pen_sum == 0] = 1  # Avoid div by zero.
-            for word in words:
-                vectors[pen][word] /= pen_sum
+        pen_sum = np.sum(np.abs(vectors[self.penalty][word]) for word in words)
+        pen_sum[pen_sum == 0] = 1  # Avoid div by zero.
+        for word in words:
+            vectors[self.penalty][word] /= pen_sum
         return vectors
 
     def covar(self, a, b):
