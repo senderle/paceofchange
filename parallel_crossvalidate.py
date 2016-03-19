@@ -630,7 +630,6 @@ class GridSearch(object):
 
         feature_covars = {}
         for i in range(self.trials):
-            print()
             print('Grid search trial {}: '.format(i), end="")
             if self.dropout_fraction:
                 self.training.drop_training_subset(self.dropout_fraction)
@@ -640,6 +639,7 @@ class GridSearch(object):
                 covar = feature_covars.get(feature, 0)
                 covar += output_data[feature][-1] / self.trials
                 feature_covars[feature] = covar
+            print()
 
         if save_file:
             self.save_grid_vectors(vectors)

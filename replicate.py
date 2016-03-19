@@ -1,6 +1,6 @@
 import sys
 import parallel_crossvalidate as pc
-from util.featuresets import review_words
+from util import featuresets
 from pprint import pprint
 
 class Settings(object):
@@ -48,13 +48,13 @@ class Settings(object):
         self.kfold_step = args.get('kfold_step', 1)
 
         # GRID SEARCH SETTINGS
-        self.grid_start_exp = args.get('grid_start_exp', 1)
+        self.grid_start_exp = args.get('grid_start_exp', 0)
         self.grid_end_exp = args.get('grid_end_exp', -2)
-        self.grid_granularity = args.get('grid_granularity', 4)
+        self.grid_granularity = args.get('grid_granularity', 2)
         self.dropout_selection_threshold = \
-            args.get('dropout_selection_threshold', 0)
-        self.dropout_trials = args.get('dropout_trials', 3)
-        self.dropout_fraction = args.get('dropout_fraction', 0.50)
+            args.get('dropout_selection_threshold', 0.0005)
+        self.dropout_trials = args.get('dropout_trials', 0)
+        self.dropout_fraction = args.get('dropout_fraction', 0)
 
         # MULTIPROCESSING SETTINGS
         self.poolmax = args.get('poolmax', 8)
@@ -160,7 +160,7 @@ def grid(settings):
 
 def gridcheat(settings):
     training = model_training_data(settings)
-    words = review_words
+    words = featuresets.tinyset
     training.set_vocablist(words)
     model = pc.LeaveOneOutModel(training, settings.penalty,
                                 settings.regularization,
