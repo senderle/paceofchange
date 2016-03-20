@@ -587,6 +587,30 @@ class FeatureSelectModel(_ValidationModel):
                                      if all_features[w] > 1])
         return predictions
 
+class SimpleL1Search(object):
+    def __init__(self, training=None, regularization=0.01, nfeatures=None):
+        self.training = training
+        self.regularization = regularization
+        self.nfeatures = nfeatures
+
+    def __call__(self, training=None):
+        self.training = training or self.training
+        if self.training is None:
+            return None
+
+        model = TestModel(self.training, 'l1', self.regularization)
+        coefficients = {word: (coef, normed)
+                        for coef, normed, word in model.coefficientuples}
+        topc = sorted((coef, word) for coef, normed, word in model.coefficientuples)
+        features = [w for c, w in topc if c != 0]
+
+        if self.nfeatures is None or self.nfeatures >= len(features):
+            return features
+        else:
+            bottom = self.nfeatures / 2
+            top = self.nfeatures - bottom
+            return features[:bottom] + features[top:]
+
 class GridSearch(object):
     def __init__(self, training=None,
                  start_exp=1, end_exp=-2, granularity=4,

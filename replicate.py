@@ -158,6 +158,16 @@ def grid(settings):
 
     model_output(model, 'gridfinalmodel.csv')
 
+def l1select(settings):
+    training = model_training_data(settings)
+    selector = pc.SimpleL1Search(training, regularization=0.03)
+    model = pc.FeatureSelectModel(
+        training, settings.penalty, settings.regularization,
+        feature_selector=selector
+    )
+
+    model_output(model, 'l1selectmodel.csv')
+
 def gridcheat(settings):
     training = model_training_data(settings)
     words = featuresets.tinyset
@@ -187,6 +197,7 @@ model_dispatch = {
     'canon': canon,
     'halves': halves,
     'grid': grid,
+    'l1select': l1select,
     'gridcheat': gridcheat,
 }
 
