@@ -51,8 +51,8 @@ class Settings(object):
         self.grid_start_exp = args.get('grid_start_exp', 0)
         self.grid_end_exp = args.get('grid_end_exp', -2)
         self.grid_granularity = args.get('grid_granularity', 2)
-        self.dropout_selection_threshold = \
-            args.get('dropout_selection_threshold', 0.0005)
+        self.grid_num_features = \
+            args.get('grid_num_features', 200)
         self.dropout_trials = args.get('dropout_trials', 0)
         self.dropout_fraction = args.get('dropout_fraction', 0)
 
@@ -146,7 +146,7 @@ def grid(settings):
     training = model_training_data(settings)
     grid = pc.GridSearch(
         training, settings.grid_start_exp, settings.grid_end_exp,
-        settings.grid_granularity, settings.dropout_selection_threshold,
+        settings.grid_granularity, settings.grid_num_features,
         settings.dropout_trials, settings.dropout_fraction,
         poolmax=settings.poolmax
     )

@@ -511,8 +511,6 @@ class LeaveOneOutModel(_ValidationModel):
             model_args.append(arg_set)
 
         # Now do leave-one-out predictions.
-        print('Beginning multiprocessing.')
-
         pool = Pool(processes=self.poolsize)
         res = pool.map_async(model_one_volume, model_args)
 
@@ -555,6 +553,31 @@ class TestModel(_ValidationModel):
             volid = self.training.volumes[i]
             predictions[volid] = pred
         return predictions
+
+# Would like to try training on combinations of features.
+
+# class TestModelNew(_ValidationModel):
+#     def _predict(self):
+#         test_indices = self.training.test_indices or 0
+#         trainingset, yvals, testset = sliceframe(
+#             self.data, self.training.classvector,
+#             self.training.dont_train, test_indices
+#         )
+#         model = LogisticRegression(C=self.regularization,
+#                                    penalty=self.penalty)
+#         trainingset, means, stdevs = normalizearray(trainingset)
+#         trainingset = np.as_array(trainingset)
+#         print(trainingset)
+#         model.fit(trainingset, yvals)
+#
+#         testset = (testset - means) / stdevs
+#         results = model.predict_proba(testset)[:, 1]
+#
+#         predictions = dict()
+#         for i, pred in zip(self.training.test_indices, results):
+#             volid = self.training.volumes[i]
+#             predictions[volid] = pred
+#         return predictions
 
 class FeatureSelectModel(_ValidationModel):
     def _predict(self):
@@ -599,9 +622,8 @@ class SimpleL1Search(object):
             return None
 
         model = TestModel(self.training, 'l1', self.regularization)
-        coefficients = {word: (coef, normed)
-                        for coef, normed, word in model.coefficientuples}
-        topc = sorted((coef, word) for coef, normed, word in model.coefficientuples)
+        topc = sorted((coef, word) for coef, normed, word
+                      in model.coefficientuples)
         features = [w for c, w in topc if c != 0]
 
         if self.nfeatures is None or self.nfeatures >= len(features):
@@ -613,8 +635,7 @@ class SimpleL1Search(object):
 
 class GridSearch(object):
     def __init__(self, training=None,
-                 start_exp=1, end_exp=-2, granularity=4,
-                 selection_threshold=0.0005,
+                 start_exp=1, end_exp=-2, granularity=4, n_features=200,
                  dropout_trials=0, dropout_fraction=None,
                  use_l2=False,
                  fileoutput=False, verbose=False, ticks=True, poolmax=8):
@@ -632,7 +653,7 @@ class GridSearch(object):
             self.dropout_fraction = 0
 
         self.trials = dropout_trials if dropout_trials > 0 else 1
-        self.selection_threshold = selection_threshold
+        self.n_features = n_features
 
         self.poolsize = min(granularity * 4, poolmax)
         self.out_filename = 'gridpredictions_p-{}_r-{}.csv'.format
@@ -654,7 +675,8 @@ class GridSearch(object):
 
         feature_covars = {}
         for i in range(self.trials):
-            print('Grid search trial {}: '.format(i), end="")
+            sys.stdout.write('Grid search trial {}: '.format(i))
+            sys.stdout.flush()
             if self.dropout_fraction:
                 self.training.drop_training_subset(self.dropout_fraction)
             vectors = self.grid_search()
@@ -668,9 +690,7 @@ class GridSearch(object):
         if save_file:
             self.save_grid_vectors(vectors)
 
-        features = sorted(feature_covars, key=feature_covars.get)
-        return [f for f in features
-                if feature_covars[f] < self.selection_threshold]
+        return sorted(feature_covars, key=feature_covars.get)[:self.n_features]
 
     def grid_information(self):
         model_descr = ' {:<15} {}'.format
@@ -744,16 +764,6 @@ class GridSearch(object):
         coefficients = {word: (coef, normed)
                         for coef, normed, word in model.coefficientuples}
         return coefficients
-
-    def reduced_features(self, vectors):
-        reduced_features = []
-        output_data = self.sort_by_covar(vectors[self.penalty])
-        output_words = output_data.dtype.names
-        best = [w for w in output_words
-                if output_data[w][-1] < self.selection_threshold]
-
-        reduced_features.append(best)
-        return reduced_features
 
     def save_grid_vectors(self, vectors, trial):
         output_data = self.sort_by_covar(vectors[self.penalty])
